@@ -11,7 +11,8 @@ from database import get_db
 from dependencies import get_current_admin_user, get_current_user
 from models import (
     User, Deposit, Withdrawal, FTD, Gateway, IGameWinAgent, FTDSettings,
-    TransactionStatus, UserRole, Bet, BetStatus, Notification, NotificationType
+    TransactionStatus, UserRole, Bet, BetStatus, Notification, NotificationType,
+    GameLayout, Theme, Affiliate
 )
 from schemas import (
     UserResponse, UserCreate, UserUpdate,
@@ -20,7 +21,10 @@ from schemas import (
     FTDResponse, FTDCreate, FTDUpdate,
     GatewayResponse, GatewayCreate, GatewayUpdate,
     IGameWinAgentResponse, IGameWinAgentCreate, IGameWinAgentUpdate,
-    FTDSettingsResponse, FTDSettingsCreate, FTDSettingsUpdate
+    FTDSettingsResponse, FTDSettingsCreate, FTDSettingsUpdate,
+    GameLayoutResponse, GameLayoutCreate, GameLayoutUpdate,
+    ThemeResponse, ThemeCreate, ThemeUpdate,
+    AffiliateResponse, AffiliateCreate, AffiliateUpdate
 )
 from auth import get_password_hash
 from igamewin_api import get_igamewin_api
@@ -617,6 +621,7 @@ async def list_igamewin_games(
 @public_router.get("/games")
 async def public_games(
     provider_code: Optional[str] = Query(None),
+    section: Optional[str] = Query("home", description="Seção: home, featured"),
     db: Session = Depends(get_db)
 ):
     api = get_igamewin_api(db)
@@ -641,19 +646,46 @@ async def public_games(
 
     games = _normalize_games(games, chosen_provider)
 
+    # Obter configurações de layout do admin
+    layouts = db.query(GameLayout).filter(
+        GameLayout.section == section,
+        GameLayout.is_active == True
+    ).order_by(GameLayout.position).all()
+    
+    # Criar mapa de layout por game_code
+    layout_map = {layout.game_code: layout for layout in layouts}
+    
     public_games = []
     for g in games:
         status_val = g.get("status")
         is_active = (status_val == 1) or (status_val is True) or (str(status_val).lower() == "active")
         if not is_active:
             continue
+        
+        game_code = g.get("game_code") or g.get("code") or g.get("game_id") or g.get("id") or g.get("slug")
+        layout = layout_map.get(game_code)
+        
+        # Se há layout configurado, usar posição e destaque dele
+        # Se não há layout, jogo aparece no final
+        position = layout.position if layout else 999999
+        is_featured = layout.is_featured if layout else False
+        
         public_games.append({
             "name": g.get("game_name") or g.get("name") or g.get("title") or g.get("gameTitle"),
-            "code": g.get("game_code") or g.get("code") or g.get("game_id") or g.get("id") or g.get("slug"),
+            "code": game_code,
             "provider": g.get("provider_code") or g.get("provider") or g.get("provider_name") or g.get("vendor") or g.get("vendor_name") or chosen_provider,
             "banner": g.get("banner") or g.get("image") or g.get("icon"),
-            "status": "active"
+            "status": "active",
+            "position": position,
+            "is_featured": is_featured
         })
+
+    # Ordenar por posição
+    public_games.sort(key=lambda x: x["position"])
+    
+    # Filtrar destaques se solicitado
+    if section == "featured":
+        public_games = [g for g in public_games if g["is_featured"]]
 
     return {
         "providers": providers,
@@ -670,13 +702,21 @@ async def launch_game(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Launch a game - requires user authentication
+    """Launch a game - requires user authentication AND positive balance
     
     Follows IGameWin API documentation:
     - Uses user_code (username) to launch game
     - Returns launch_url from API response
     - If provider_code is not provided, searches for the game in the game list to find its provider
+    - Requires user to have balance > 0
     """
+    # Verificar se usuário tem saldo
+    if not current_user.balance or current_user.balance <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Você precisa ter saldo para jogar. Faça um depósito primeiro."
+        )
+    
     api = get_igamewin_api(db)
     if not api:
         raise HTTPException(status_code=400, detail="Nenhum agente IGameWin ativo configurado")
@@ -746,6 +786,162 @@ async def launch_game(
         "username": current_user.username,
         "user_code": current_user.username
     }
+
+
+# ========== SEAMLESS API (IGameWin) ==========
+@public_router.post("/gold_api")
+async def seamless_api(
+    request: dict,
+    db: Session = Depends(get_db)
+):
+    """
+    API Seamless para IGameWin - requerida para modo seamless
+    Endpoints suportados:
+    - user_balance: Retornar saldo do usuário
+    - transaction: Processar transação (debit/credit/debit_credit)
+    """
+    from fastapi import Request
+    import hashlib
+    
+    method = request.get("method")
+    agent_code = request.get("agent_code")
+    agent_secret = request.get("agent_secret")  # IGameWin usa agent_secret aqui
+    user_code = request.get("user_code")
+    
+    if not method or not agent_code or not agent_secret or not user_code:
+        return {"status": 0, "msg": "INVALID_PARAMETER"}
+    
+    # Verificar credenciais do agente
+    agent = db.query(IGameWinAgent).filter(
+        IGameWinAgent.agent_code == agent_code,
+        IGameWinAgent.is_active == True
+    ).first()
+    
+    if not agent:
+        return {"status": 0, "msg": "INVALID_AGENT"}
+    
+    # Verificar agent_secret (na doc IGameWin, pode ser o agent_key ou outro campo)
+    # Por padrão, vamos usar agent_key como secret
+    if agent_secret != agent.agent_key:
+        # Se tiver credentials JSON, pode ter agent_secret lá
+        if agent.credentials:
+            try:
+                creds = json.loads(agent.credentials)
+                if creds.get("agent_secret") != agent_secret:
+                    return {"status": 0, "msg": "INVALID_AGENT_SECRET"}
+            except:
+                if agent_secret != agent.agent_key:
+                    return {"status": 0, "msg": "INVALID_AGENT_SECRET"}
+        else:
+            return {"status": 0, "msg": "INVALID_AGENT_SECRET"}
+    
+    # Buscar usuário
+    user = db.query(User).filter(User.username == user_code).first()
+    if not user:
+        return {"status": 0, "user_balance": 0, "msg": "INVALID_USER"}
+    
+    # Método: user_balance
+    if method == "user_balance":
+        return {
+            "status": 1,
+            "user_balance": user.balance
+        }
+    
+    # Método: transaction
+    if method == "transaction":
+        agent_balance = request.get("agent_balance", 0)  # Saldo do agente (IGameWin envia)
+        user_balance_sent = request.get("user_balance", 0)  # Saldo que IGameWin acha que o user tem
+        
+        # Obter dados da transação baseado no tipo de jogo
+        game_type = request.get("game_type")
+        
+        if game_type == "slot":
+            slot_data = request.get("slot", {})
+            provider_code = slot_data.get("provider_code")
+            game_code = slot_data.get("game_code")
+            txn_type = slot_data.get("txn_type")  # debit, credit, debit_credit
+            bet_money = slot_data.get("bet_money", 0)
+            win_money = slot_data.get("win_money", 0)
+            txn_id = slot_data.get("txn_id")
+            
+            if not txn_id:
+                return {"status": 0, "msg": "INVALID_PARAMETER"}
+            
+            # Verificar se transação já foi processada
+            existing_bet = db.query(Bet).filter(Bet.transaction_id == txn_id).first()
+            if existing_bet:
+                # Retornar saldo atualizado
+                return {
+                    "status": 1,
+                    "user_balance": user.balance
+                }
+            
+            # Processar transação
+            try:
+                if txn_type == "debit":
+                    # Apenas aposta (debit)
+                    if user.balance < bet_money:
+                        return {"status": 0, "user_balance": user.balance, "msg": "INSUFFICIENT_USER_FUNDS"}
+                    
+                    user.balance -= bet_money
+                    win_amount = 0
+                    
+                elif txn_type == "credit":
+                    # Apenas ganho (credit)
+                    user.balance += win_money
+                    bet_money = 0
+                    win_amount = win_money
+                    
+                elif txn_type == "debit_credit":
+                    # Aposta e ganho (debit_credit)
+                    if user.balance < bet_money:
+                        return {"status": 0, "user_balance": user.balance, "msg": "INSUFFICIENT_USER_FUNDS"}
+                    
+                    user.balance -= bet_money
+                    user.balance += win_money
+                    win_amount = win_money
+                    
+                else:
+                    return {"status": 0, "msg": "INVALID_TXN_TYPE"}
+                
+                # Criar registro de aposta
+                bet = Bet(
+                    user_id=user.id,
+                    game_id=game_code,
+                    game_name=game_code,  # Pode ser melhorado com nome real
+                    provider=provider_code or "IGameWin",
+                    amount=bet_money,
+                    win_amount=win_amount,
+                    status=BetStatus.WON if win_amount > 0 else BetStatus.LOST,
+                    transaction_id=txn_id,
+                    external_id=txn_id,
+                    metadata_json=json.dumps(slot_data)
+                )
+                db.add(bet)
+                
+                # Sincronizar com IGameWin se necessário
+                api = get_igamewin_api(db)
+                if api:
+                    # Transferir saldo para IGameWin se necessário (seamless mode)
+                    # A lógica aqui depende de como você quer gerenciar o saldo
+                    # Por enquanto, apenas atualizamos nosso banco
+                    pass
+                
+                db.commit()
+                db.refresh(user)
+                
+                return {
+                    "status": 1,
+                    "user_balance": user.balance
+                }
+                
+            except Exception as e:
+                db.rollback()
+                return {"status": 0, "msg": f"INTERNAL_ERROR: {str(e)}"}
+        
+        return {"status": 0, "msg": "UNSUPPORTED_GAME_TYPE"}
+    
+    return {"status": 0, "msg": "INVALID_METHOD"}
 
 
 # ========== STATS ==========
@@ -1191,3 +1387,262 @@ async def delete_notification(
     db.commit()
     
     return {"success": True, "message": "Notificação deletada com sucesso"}
+
+
+# ========== GAME LAYOUT ==========
+@router.get("/game-layouts", response_model=List[GameLayoutResponse])
+async def get_game_layouts(
+    section: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Listar configurações de layout dos jogos"""
+    query = db.query(GameLayout)
+    if section:
+        query = query.filter(GameLayout.section == section)
+    return query.order_by(GameLayout.position).all()
+
+
+@router.post("/game-layouts", response_model=GameLayoutResponse, status_code=status.HTTP_201_CREATED)
+async def create_game_layout(
+    layout_data: GameLayoutCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Criar configuração de layout para um jogo"""
+    # Verificar se já existe
+    existing = db.query(GameLayout).filter(
+        GameLayout.game_code == layout_data.game_code,
+        GameLayout.section == layout_data.section
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Layout já existe para este jogo nesta seção")
+    
+    layout = GameLayout(**layout_data.model_dump())
+    db.add(layout)
+    db.commit()
+    db.refresh(layout)
+    return layout
+
+
+@router.put("/game-layouts/{layout_id}", response_model=GameLayoutResponse)
+async def update_game_layout(
+    layout_id: int,
+    layout_data: GameLayoutUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Atualizar configuração de layout"""
+    layout = db.query(GameLayout).filter(GameLayout.id == layout_id).first()
+    if not layout:
+        raise HTTPException(status_code=404, detail="Layout não encontrado")
+    
+    update_data = layout_data.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(layout, field, value)
+    
+    db.commit()
+    db.refresh(layout)
+    return layout
+
+
+@router.post("/game-layouts/reorder")
+async def reorder_game_layouts(
+    layout_ids: List[int],
+    section: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Reordenar layouts (array de IDs na ordem desejada)"""
+    query = db.query(GameLayout)
+    if section:
+        query = query.filter(GameLayout.section == section)
+    layouts = query.all()
+    
+    # Atualizar posições
+    for idx, layout_id in enumerate(layout_ids):
+        layout = next((l for l in layouts if l.id == layout_id), None)
+        if layout:
+            layout.position = idx
+    
+    db.commit()
+    return {"success": True, "message": "Ordem atualizada"}
+
+
+@router.delete("/game-layouts/{layout_id}")
+async def delete_game_layout(
+    layout_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Deletar configuração de layout"""
+    layout = db.query(GameLayout).filter(GameLayout.id == layout_id).first()
+    if not layout:
+        raise HTTPException(status_code=404, detail="Layout não encontrado")
+    
+    db.delete(layout)
+    db.commit()
+    return {"success": True, "message": "Layout deletado com sucesso"}
+
+
+# ========== THEMES ==========
+@router.get("/themes", response_model=List[ThemeResponse])
+async def get_themes(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Listar temas"""
+    return db.query(Theme).order_by(Theme.is_default.desc(), Theme.created_at).all()
+
+
+@router.get("/themes/active", response_model=ThemeResponse)
+async def get_active_theme(
+    db: Session = Depends(get_db)
+):
+    """Obter tema ativo (público, usado pelo frontend)"""
+    theme = db.query(Theme).filter(Theme.is_active == True, Theme.is_default == True).first()
+    if not theme:
+        # Retornar tema padrão se nenhum estiver marcado como padrão
+        theme = db.query(Theme).filter(Theme.is_active == True).first()
+    if not theme:
+        raise HTTPException(status_code=404, detail="Nenhum tema ativo encontrado")
+    return theme
+
+
+@router.post("/themes", response_model=ThemeResponse, status_code=status.HTTP_201_CREATED)
+async def create_theme(
+    theme_data: ThemeCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Criar novo tema"""
+    # Se é o padrão, remover padrão dos outros
+    if theme_data.is_default:
+        db.query(Theme).filter(Theme.is_default == True).update({"is_default": False})
+    
+    theme = Theme(**theme_data.model_dump())
+    db.add(theme)
+    db.commit()
+    db.refresh(theme)
+    return theme
+
+
+@router.put("/themes/{theme_id}", response_model=ThemeResponse)
+async def update_theme(
+    theme_id: int,
+    theme_data: ThemeUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Atualizar tema"""
+    theme = db.query(Theme).filter(Theme.id == theme_id).first()
+    if not theme:
+        raise HTTPException(status_code=404, detail="Tema não encontrado")
+    
+    update_data = theme_data.model_dump(exclude_unset=True)
+    
+    # Se está marcando como padrão, remover padrão dos outros
+    if update_data.get("is_default") is True:
+        db.query(Theme).filter(Theme.is_default == True, Theme.id != theme_id).update({"is_default": False})
+    
+    for field, value in update_data.items():
+        setattr(theme, field, value)
+    
+    db.commit()
+    db.refresh(theme)
+    return theme
+
+
+@router.delete("/themes/{theme_id}")
+async def delete_theme(
+    theme_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Deletar tema"""
+    theme = db.query(Theme).filter(Theme.id == theme_id).first()
+    if not theme:
+        raise HTTPException(status_code=404, detail="Tema não encontrado")
+    
+    db.delete(theme)
+    db.commit()
+    return {"success": True, "message": "Tema deletado com sucesso"}
+
+
+# ========== AFFILIATES ==========
+@router.get("/affiliates", response_model=List[AffiliateResponse])
+async def get_affiliates(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Listar afiliados"""
+    return db.query(Affiliate).order_by(Affiliate.created_at.desc()).all()
+
+
+@router.get("/affiliates/{affiliate_id}", response_model=AffiliateResponse)
+async def get_affiliate(
+    affiliate_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Obter afiliado específico"""
+    affiliate = db.query(Affiliate).filter(Affiliate.id == affiliate_id).first()
+    if not affiliate:
+        raise HTTPException(status_code=404, detail="Afiliado não encontrado")
+    return affiliate
+
+
+@router.post("/affiliates", response_model=AffiliateResponse, status_code=status.HTTP_201_CREATED)
+async def create_affiliate(
+    affiliate_data: AffiliateCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Criar novo afiliado"""
+    # Verificar se código já existe
+    existing = db.query(Affiliate).filter(Affiliate.code == affiliate_data.code).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Código de afiliado já existe")
+    
+    affiliate = Affiliate(**affiliate_data.model_dump())
+    db.add(affiliate)
+    db.commit()
+    db.refresh(affiliate)
+    return affiliate
+
+
+@router.put("/affiliates/{affiliate_id}", response_model=AffiliateResponse)
+async def update_affiliate(
+    affiliate_id: int,
+    affiliate_data: AffiliateUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Atualizar afiliado"""
+    affiliate = db.query(Affiliate).filter(Affiliate.id == affiliate_id).first()
+    if not affiliate:
+        raise HTTPException(status_code=404, detail="Afiliado não encontrado")
+    
+    update_data = affiliate_data.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(affiliate, field, value)
+    
+    db.commit()
+    db.refresh(affiliate)
+    return affiliate
+
+
+@router.delete("/affiliates/{affiliate_id}")
+async def delete_affiliate(
+    affiliate_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Deletar afiliado"""
+    affiliate = db.query(Affiliate).filter(Affiliate.id == affiliate_id).first()
+    if not affiliate:
+        raise HTTPException(status_code=404, detail="Afiliado não encontrado")
+    
+    db.delete(affiliate)
+    db.commit()
+    return {"success": True, "message": "Afiliado deletado com sucesso"}

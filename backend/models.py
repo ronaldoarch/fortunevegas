@@ -33,6 +33,7 @@ class User(Base):
     balance = Column(Float, default=0.0, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     is_verified = Column(Boolean, default=False, nullable=False)
+    affiliate_id = Column(Integer, ForeignKey("affiliates.id"), nullable=True)  # Afiliado que trouxe o usuário
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -42,6 +43,7 @@ class User(Base):
     ftds = relationship("FTD", back_populates="user")
     bets = relationship("Bet")
     notifications = relationship("Notification")
+    affiliate = relationship("Affiliate")
 
 
 class Gateway(Base):
@@ -208,3 +210,51 @@ class Notification(Base):
     
     # Relationships
     user = relationship("User")
+
+
+class GameLayout(Base):
+    """Configuração de layout da grade de jogos na home"""
+    __tablename__ = "game_layouts"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    game_code = Column(String(255), nullable=False, index=True)  # Código do jogo (ex: vs20doghouse)
+    provider_code = Column(String(100))  # Código do provedor (ex: PRAGMATIC)
+    position = Column(Integer, default=0, nullable=False)  # Posição na grade (0 = primeiro)
+    is_featured = Column(Boolean, default=False, nullable=False)  # Jogo em destaque
+    section = Column(String(100), default="home")  # Seção (home, featured, etc)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Theme(Base):
+    """Temas de cores da plataforma"""
+    __tablename__ = "themes"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    is_default = Column(Boolean, default=False, nullable=False)  # Tema padrão
+    is_active = Column(Boolean, default=True, nullable=False)
+    # Cores em JSON
+    colors_json = Column(Text, nullable=False)  # JSON: {bg, surface, card, accent, accentSoft, text, muted}
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Affiliate(Base):
+    """Sistema de afiliados"""
+    __tablename__ = "affiliates"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String(100), unique=True, nullable=False, index=True)  # Código único do afiliado
+    name = Column(String(255), nullable=False)  # Nome do afiliado
+    email = Column(String(255))
+    phone = Column(String(20))
+    commission_rate = Column(Float, default=0.0, nullable=False)  # Taxa de comissão (0-100)
+    is_active = Column(Boolean, default=True, nullable=False)
+    metadata_json = Column(Text)  # JSON com dados adicionais
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships - linkar usuários a afiliados
+    # user.affiliate_id seria adicionado em User se necessário

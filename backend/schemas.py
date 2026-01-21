@@ -235,3 +235,94 @@ class MediaAssetResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+# Game Layout Schemas
+class GameLayoutBase(BaseModel):
+    game_code: str
+    provider_code: Optional[str] = None
+    position: int = 0
+    is_featured: bool = False
+    section: str = "home"
+    is_active: bool = True
+
+
+class GameLayoutCreate(GameLayoutBase):
+    pass
+
+
+class GameLayoutUpdate(BaseModel):
+    position: Optional[int] = None
+    is_featured: Optional[bool] = None
+    section: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class GameLayoutResponse(GameLayoutBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+# Theme Schemas
+class ThemeBase(BaseModel):
+    name: str
+    is_default: bool = False
+    is_active: bool = True
+    colors_json: str  # JSON string com as cores
+
+
+class ThemeCreate(ThemeBase):
+    pass
+
+
+class ThemeUpdate(BaseModel):
+    name: Optional[str] = None
+    is_default: Optional[bool] = None
+    is_active: Optional[bool] = None
+    colors_json: Optional[str] = None
+
+
+class ThemeResponse(ThemeBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+# Affiliate Schemas
+class AffiliateBase(BaseModel):
+    code: str
+    name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    commission_rate: float = 0.0
+    is_active: bool = True
+    metadata_json: Optional[str] = None
+
+
+class AffiliateCreate(AffiliateBase):
+    pass
+
+
+class AffiliateUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    commission_rate: Optional[float] = None
+    is_active: Optional[bool] = None
+    metadata_json: Optional[str] = None
+
+
+class AffiliateResponse(AffiliateBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
