@@ -46,6 +46,8 @@ export default function NovidadesSection({ filters, onProvidersLoaded }: Novidad
     return () => window.removeEventListener('resize', updateGamesPerPage);
   }, []);
 
+  const [gamesByProvider, setGamesByProvider] = useState<Record<string, { provider_name: string; games: Game[] }>>({});
+
   useEffect(() => {
     const fetchGames = async () => {
       setLoading(true);
@@ -53,24 +55,59 @@ export default function NovidadesSection({ filters, onProvidersLoaded }: Novidad
         const res = await fetch(API_URL);
         if (!res.ok) throw new Error('Falha ao carregar jogos');
         const data = await res.json();
-        const mapped: Game[] = (data.games || []).map((g: any, idx: number) => ({
-          id: g.code || g.name || String(idx),
-          title: g.name || g.title || 'Jogo',
-          provider: g.provider,
-          banner: g.banner,
-          code: g.code,
-        }));
-        setGames(mapped);
-        if (!providersLoadedRef.current) {
-          const uniqueProviders = Array.from(
-            new Set(
-              mapped
-                .map((g) => g.provider?.trim())
-                .filter((p): p is string => Boolean(p))
-            )
-          ).sort((a, b) => a.localeCompare(b));
-          onProvidersLoaded?.(uniqueProviders);
-          providersLoadedRef.current = true;
+        
+        // Se há games_by_provider, usar essa estrutura (configurada pelo admin)
+        if (data.games_by_provider && Object.keys(data.games_by_provider).length > 0) {
+          const providerMap: Record<string, { provider_name: string; games: Game[] }> = {};
+          Object.entries(data.games_by_provider).forEach(([providerCode, providerData]: [string, any]) => {
+            providerMap[providerCode] = {
+              provider_name: providerData.provider_name || providerCode,
+              games: (providerData.games || []).map((g: any, idx: number) => ({
+                id: g.code || g.name || String(idx),
+                title: g.name || g.title || 'Jogo',
+                provider: providerCode,
+                banner: g.banner,
+                code: g.code,
+              }))
+            };
+          });
+          setGamesByProvider(providerMap);
+          
+          // Para compatibilidade, também manter lista plana
+          const allGames: Game[] = [];
+          Object.values(providerMap).forEach(provider => {
+            allGames.push(...provider.games);
+          });
+          setGames(allGames);
+          
+          if (!providersLoadedRef.current) {
+            const providerNames = Object.values(providerMap).map(p => p.provider_name);
+            onProvidersLoaded?.(providerNames);
+            providersLoadedRef.current = true;
+          }
+        } else {
+          // Fallback: usar formato antigo (lista plana)
+          const mapped: Game[] = (data.games || []).map((g: any, idx: number) => ({
+            id: g.code || g.name || String(idx),
+            title: g.name || g.title || 'Jogo',
+            provider: g.provider,
+            banner: g.banner,
+            code: g.code,
+          }));
+          setGames(mapped);
+          setGamesByProvider({});
+          
+          if (!providersLoadedRef.current) {
+            const uniqueProviders = Array.from(
+              new Set(
+                mapped
+                  .map((g) => g.provider?.trim())
+                  .filter((p): p is string => Boolean(p))
+              )
+            ).sort((a, b) => a.localeCompare(b));
+            onProvidersLoaded?.(uniqueProviders);
+            providersLoadedRef.current = true;
+          }
         }
       } catch (err) {
         console.error('Erro ao buscar jogos', err);
@@ -114,19 +151,37 @@ export default function NovidadesSection({ filters, onProvidersLoaded }: Novidad
 
   const displayedGames = filteredGames.slice(currentIndex, currentIndex + gamesPerPage);
 
-  const gamesByProvider = useMemo(() => {
-    return filteredGames.reduce<Record<string, Game[]>>((acc, game) => {
-      const key = (game.provider || 'Outros').trim() || 'Outros';
-      if (!acc[key]) acc[key] = [];
-      acc[key].push(game);
-      return acc;
-    }, {});
-  }, [filteredGames]);
-
-  const providerEntries = useMemo(
-    () => Object.entries(gamesByProvider).sort((a, b) => a[0].localeCompare(b[0])),
-    [gamesByProvider]
-  );
+  // Se há games_by_provider configurado, usar ele (já ordenado pelo admin)
+  // Caso contrário, agrupar manualmente pelos jogos filtrados
+  const providerEntries = useMemo(() => {
+    if (Object.keys(gamesByProvider).length > 0) {
+      // Usar estrutura configurada pelo admin
+      return Object.entries(gamesByProvider).map(([providerCode, providerData]) => {
+        // Aplicar filtros aos jogos do provedor
+        let filteredProviderGames = providerData.games.filter((game) => {
+          const matchesProvider = normalizedProvider
+            ? (game.provider || '').toLowerCase() === normalizedProvider
+            : true;
+          const matchesQuery = normalizedQuery
+            ? (game.title || '').toLowerCase().includes(normalizedQuery) ||
+              (game.code || '').toLowerCase().includes(normalizedQuery) ||
+              (game.provider || '').toLowerCase().includes(normalizedQuery)
+            : true;
+          return matchesProvider && matchesQuery;
+        });
+        return [providerData.provider_name, filteredProviderGames] as [string, Game[]];
+      }).filter(([_, games]) => games.length > 0); // Remover provedores sem jogos após filtro
+    } else {
+      // Fallback: agrupar manualmente
+      const grouped = filteredGames.reduce<Record<string, Game[]>>((acc, game) => {
+        const key = (game.provider || 'Outros').trim() || 'Outros';
+        if (!acc[key]) acc[key] = [];
+        acc[key].push(game);
+        return acc;
+      }, {});
+      return Object.entries(grouped).sort((a, b) => a[0].localeCompare(b[0]));
+    }
+  }, [gamesByProvider, filteredGames, normalizedProvider, normalizedQuery]);
 
   const renderGameCard = (game: Game) => (
     <a

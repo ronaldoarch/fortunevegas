@@ -2309,9 +2309,12 @@ function NotificationsTab({ token }: { token: string }) {
 function GameLayoutTab({ token }: { token: string }) {
   const [layouts, setLayouts] = useState<any[]>([]);
   const [allGames, setAllGames] = useState<any[]>([]);
+  const [providerLayouts, setProviderLayouts] = useState<any[]>([]);
+  const [availableProviders, setAvailableProviders] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [section, setSection] = useState('home');
+  const [activeSubTab, setActiveSubTab] = useState<'providers' | 'games'>('providers');
 
   const fetchLayouts = async () => {
     setLoading(true); setError('');
@@ -2334,8 +2337,106 @@ function GameLayoutTab({ token }: { token: string }) {
       if (!res.ok) throw new Error('Falha ao carregar jogos');
       const data = await res.json();
       setAllGames(data.games || []);
+      
+      // Extrair provedores disponíveis da resposta
+      if (data.providers && Array.isArray(data.providers)) {
+        setAvailableProviders(data.providers);
+      }
     } catch (err: any) {
       console.error('Erro ao buscar jogos:', err);
+    }
+  };
+
+  const fetchProviderLayouts = async () => {
+    setLoading(true); setError('');
+    try {
+      const res = await fetch(`${API_URL}/api/admin/provider-layouts?section=${section}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error('Falha ao carregar configurações de provedores');
+      setProviderLayouts(await res.json());
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const addProviderToLayout = async (providerCode: string, providerName: string) => {
+    setLoading(true); setError('');
+    try {
+      const res = await fetch(`${API_URL}/api/admin/provider-layouts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          provider_code: providerCode,
+          provider_name: providerName,
+          section: section,
+          position: providerLayouts.length,
+          max_games: 30,
+          is_active: true
+        })
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.detail || 'Falha ao adicionar provedor');
+      }
+      await fetchProviderLayouts();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateProviderLayout = async (id: number, updates: any) => {
+    setLoading(true); setError('');
+    try {
+      const res = await fetch(`${API_URL}/api/admin/provider-layouts/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(updates)
+      });
+      if (!res.ok) throw new Error('Falha ao atualizar');
+      await fetchProviderLayouts();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const reorderProviderLayouts = async (newOrder: number[]) => {
+    setLoading(true); setError('');
+    try {
+      const res = await fetch(`${API_URL}/api/admin/provider-layouts/reorder?section=${section}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(newOrder)
+      });
+      if (!res.ok) throw new Error('Falha ao reordenar');
+      await fetchProviderLayouts();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteProviderLayout = async (id: number) => {
+    if (!confirm('Remover este provedor da configuração?')) return;
+    setLoading(true); setError('');
+    try {
+      const res = await fetch(`${API_URL}/api/admin/provider-layouts/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error('Falha ao remover');
+      await fetchProviderLayouts();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -2420,11 +2521,15 @@ function GameLayoutTab({ token }: { token: string }) {
   useEffect(() => {
     fetchLayouts();
     fetchGames();
+    fetchProviderLayouts();
   }, [section]);
 
   const availableGames = allGames.filter(
     g => !layouts.some(l => l.game_code === g.code)
   );
+
+  const configuredProviderCodes = providerLayouts.map(pl => pl.provider_code);
+  const availableProvidersToAdd = availableProviders.filter(p => !configuredProviderCodes.includes(p));
 
   return (
     <div className="space-y-4">
@@ -2439,14 +2544,134 @@ function GameLayoutTab({ token }: { token: string }) {
             <option value="home">Home</option>
             <option value="featured">Destaques</option>
           </select>
-          <button onClick={fetchLayouts} className="flex items-center gap-2 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded">
+          <button onClick={() => { fetchLayouts(); fetchProviderLayouts(); }} className="flex items-center gap-2 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded">
             <RefreshCw size={18} /> Atualizar
           </button>
         </div>
       </div>
 
+      {/* Tabs para alternar entre Provedores e Jogos */}
+      <div className="flex gap-2 border-b border-gray-700">
+        <button
+          onClick={() => setActiveSubTab('providers')}
+          className={`px-4 py-2 font-semibold ${activeSubTab === 'providers' ? 'border-b-2 border-[#d4af37] text-[#d4af37]' : 'text-gray-400'}`}
+        >
+          Ordem dos Provedores
+        </button>
+        <button
+          onClick={() => setActiveSubTab('games')}
+          className={`px-4 py-2 font-semibold ${activeSubTab === 'games' ? 'border-b-2 border-[#d4af37] text-[#d4af37]' : 'text-gray-400'}`}
+        >
+          Jogos Individuais
+        </button>
+      </div>
+
       {error && <div className="text-red-400">{error}</div>}
 
+      {/* SEÇÃO DE PROVEDORES */}
+      {activeSubTab === 'providers' && (
+        <>
+          <div className="bg-gray-800/60 p-4 rounded border border-gray-700">
+            <h3 className="text-lg font-semibold mb-4">Ordem dos Provedores na Home ({section})</h3>
+            <p className="text-sm text-gray-400 mb-4">
+              Configure a ordem dos provedores e quantos jogos cada um deve exibir na home.
+            </p>
+            {loading && providerLayouts.length === 0 && <div>Carregando...</div>}
+            {providerLayouts.length === 0 && !loading && (
+              <div className="text-center py-8 text-gray-400">
+                <p>Nenhum provedor configurado. Adicione provedores abaixo.</p>
+              </div>
+            )}
+            <div className="space-y-2">
+              {providerLayouts.map((pl, idx) => (
+                <div key={pl.id} className="flex items-center gap-3 p-3 bg-gray-900 rounded border border-gray-700">
+                  <div className="flex items-center gap-2 flex-1">
+                    <span className="text-gray-400 w-8">{idx + 1}.</span>
+                    <div className="flex-1">
+                      <div className="font-semibold">{pl.provider_name}</div>
+                      <div className="text-xs text-gray-400">{pl.provider_code}</div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2">
+                        <label className="text-sm text-gray-300">Máx. jogos:</label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          value={pl.max_games}
+                          onChange={(e) => updateProviderLayout(pl.id, { max_games: parseInt(e.target.value) || 0 })}
+                          className="w-20 px-2 py-1 bg-gray-800 border border-gray-600 rounded text-sm"
+                        />
+                      </div>
+                      <button
+                        onClick={() => updateProviderLayout(pl.id, { is_active: !pl.is_active })}
+                        className={`px-2 py-1 text-xs rounded ${pl.is_active ? 'bg-green-600/60' : 'bg-gray-700'}`}
+                      >
+                        {pl.is_active ? 'Ativo' : 'Inativo'}
+                      </button>
+                      <button
+                        onClick={() => deleteProviderLayout(pl.id)}
+                        className="px-2 py-1 text-xs bg-red-600/60 hover:bg-red-600 rounded"
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  </div>
+                  {idx > 0 && (
+                    <button
+                      onClick={() => {
+                        const newOrder = [...providerLayouts.map(l => l.id)];
+                        [newOrder[idx], newOrder[idx - 1]] = [newOrder[idx - 1], newOrder[idx]];
+                        reorderProviderLayouts(newOrder);
+                      }}
+                      className="p-1 hover:bg-gray-700 rounded"
+                      title="Mover para cima"
+                    >
+                      ↑
+                    </button>
+                  )}
+                  {idx < providerLayouts.length - 1 && (
+                    <button
+                      onClick={() => {
+                        const newOrder = [...providerLayouts.map(l => l.id)];
+                        [newOrder[idx], newOrder[idx + 1]] = [newOrder[idx + 1], newOrder[idx]];
+                        reorderProviderLayouts(newOrder);
+                      }}
+                      className="p-1 hover:bg-gray-700 rounded"
+                      title="Mover para baixo"
+                    >
+                      ↓
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {availableProvidersToAdd.length > 0 && (
+            <div className="bg-gray-800/60 p-4 rounded border border-gray-700">
+              <h3 className="text-lg font-semibold mb-4">Adicionar Provedores</h3>
+              <div className="grid md:grid-cols-3 lg:grid-cols-4 gap-3">
+                {availableProvidersToAdd.map(providerCode => (
+                  <div key={providerCode} className="p-3 bg-gray-900 rounded border border-gray-700">
+                    <div className="font-semibold mb-2">{providerCode}</div>
+                    <button
+                      onClick={() => addProviderToLayout(providerCode, providerCode)}
+                      className="w-full px-2 py-1 text-xs bg-[#ff6b35] hover:bg-[#ff7b35] rounded"
+                    >
+                      Adicionar
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* SEÇÃO DE JOGOS INDIVIDUAIS */}
+      {activeSubTab === 'games' && (
+        <>
       <div className="bg-gray-800/60 p-4 rounded border border-gray-700">
         <h3 className="text-lg font-semibold mb-4">Jogos na Grade ({section})</h3>
         {loading && layouts.length === 0 && <div>Carregando...</div>}
@@ -2537,6 +2762,8 @@ function GameLayoutTab({ token }: { token: string }) {
             ))}
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );
