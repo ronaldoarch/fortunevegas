@@ -9,7 +9,7 @@ import {
   Gift, ShoppingBag, Tag
 } from 'lucide-react';
 import type { ThemePalette } from '../utils/themeManager';
-import { applyThemeToDocument, getThemeList, saveThemeList, setActiveTheme } from '../utils/themeManager';
+import { applyThemeToDocument } from '../utils/themeManager';
 
 interface Stats {
   total_users: number;
@@ -47,8 +47,6 @@ interface Stats {
 
 // Backend FastAPI - usa variável de ambiente ou fallback para localhost
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-
-const makeId = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(16).slice(2));
 
 export default function Admin() {
   const navigate = useNavigate();
