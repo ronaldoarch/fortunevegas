@@ -82,7 +82,23 @@ def run_migrations():
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_game_layouts_game_code ON game_layouts(game_code)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_game_layouts_position ON game_layouts(position)"))
             
-            # 5. Criar tabela themes
+            # 5. Criar tabela provider_layouts
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS provider_layouts (
+                    id SERIAL PRIMARY KEY,
+                    provider_code VARCHAR(100) UNIQUE NOT NULL,
+                    provider_name VARCHAR(255) NOT NULL,
+                    position INTEGER NOT NULL DEFAULT 0,
+                    max_games INTEGER NOT NULL DEFAULT 30,
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    section VARCHAR(100) DEFAULT 'home',
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_provider_layouts_provider_code ON provider_layouts(provider_code)"))
+            
+            # 6. Criar tabela themes
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS themes (
                     id SERIAL PRIMARY KEY,

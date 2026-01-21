@@ -212,6 +212,21 @@ class Notification(Base):
     user = relationship("User")
 
 
+class ProviderLayout(Base):
+    """Configuração de ordem dos provedores na home"""
+    __tablename__ = "provider_layouts"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    provider_code = Column(String(100), unique=True, nullable=False, index=True)  # Código do provedor (ex: PGSOFT, PRAGMATIC)
+    provider_name = Column(String(255), nullable=False)  # Nome exibido do provedor
+    position = Column(Integer, default=0, nullable=False)  # Posição na home (0 = primeiro)
+    max_games = Column(Integer, default=30, nullable=False)  # Máximo de jogos a exibir (0 = todos)
+    is_active = Column(Boolean, default=True, nullable=False)  # Se o provedor aparece na home
+    section = Column(String(100), default="home")  # Seção (home, featured, etc)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class GameLayout(Base):
     """Configuração de layout da grade de jogos na home"""
     __tablename__ = "game_layouts"

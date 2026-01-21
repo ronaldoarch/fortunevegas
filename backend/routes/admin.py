@@ -12,7 +12,7 @@ from dependencies import get_current_admin_user, get_current_user
 from models import (
     User, Deposit, Withdrawal, FTD, Gateway, IGameWinAgent, FTDSettings,
     TransactionStatus, UserRole, Bet, BetStatus, Notification, NotificationType,
-    GameLayout, Theme, Affiliate
+    GameLayout, ProviderLayout, Theme, Affiliate
 )
 from schemas import (
     UserResponse, UserCreate, UserUpdate,
@@ -23,6 +23,7 @@ from schemas import (
     IGameWinAgentResponse, IGameWinAgentCreate, IGameWinAgentUpdate,
     FTDSettingsResponse, FTDSettingsCreate, FTDSettingsUpdate,
     GameLayoutResponse, GameLayoutCreate, GameLayoutUpdate,
+    ProviderLayoutResponse, ProviderLayoutCreate, ProviderLayoutUpdate,
     ThemeResponse, ThemeCreate, ThemeUpdate,
     AffiliateResponse, AffiliateCreate, AffiliateUpdate
 )
@@ -635,63 +636,180 @@ async def public_games(
             detail=f"Não foi possível obter provedores da IGameWin ({api.last_error or 'erro desconhecido'})"
         )
 
-    chosen_provider = _choose_provider(providers, provider_code)
-
-    games = await api.get_games(provider_code=chosen_provider)
-    if games is None:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Não foi possível obter jogos da IGameWin (verifique provider_code e credenciais do agente). {api.last_error or ''}".strip()
-        )
-
-    games = _normalize_games(games, chosen_provider)
-
-    # Obter configurações de layout do admin
+    # Se provider_code específico foi solicitado, retorna jogos apenas desse provedor
+    if provider_code:
+        chosen_provider = _choose_provider(providers, provider_code)
+        games = await api.get_games(provider_code=chosen_provider)
+        if games is None:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Não foi possível obter jogos da IGameWin. {api.last_error or ''}".strip()
+            )
+        games = _normalize_games(games, chosen_provider)
+        
+        layouts = db.query(GameLayout).filter(
+            GameLayout.section == section,
+            GameLayout.is_active == True
+        ).order_by(GameLayout.position).all()
+        layout_map = {layout.game_code: layout for layout in layouts}
+        
+        public_games = []
+        for g in games:
+            status_val = g.get("status")
+            is_active = (status_val == 1) or (status_val is True) or (str(status_val).lower() == "active")
+            if not is_active:
+                continue
+            
+            game_code = g.get("game_code") or g.get("code") or g.get("game_id") or g.get("id") or g.get("slug")
+            layout = layout_map.get(game_code)
+            position = layout.position if layout else 999999
+            is_featured = layout.is_featured if layout else False
+            
+            public_games.append({
+                "name": g.get("game_name") or g.get("name") or g.get("title") or g.get("gameTitle"),
+                "code": game_code,
+                "provider": chosen_provider,
+                "banner": g.get("banner") or g.get("image") or g.get("icon"),
+                "status": "active",
+                "position": position,
+                "is_featured": is_featured
+            })
+        
+        public_games.sort(key=lambda x: x["position"])
+        if section == "featured":
+            public_games = [g for g in public_games if g["is_featured"]]
+        
+        return {
+            "providers": providers,
+            "provider_code": chosen_provider,
+            "games": public_games,
+            "games_by_provider": {}  # Retorna vazio quando filtrado por provedor
+        }
+    
+    # Caso contrário, retorna jogos organizados por provedor conforme configuração admin
+    # Obter configuração de ordem dos provedores
+    provider_layouts = db.query(ProviderLayout).filter(
+        ProviderLayout.section == section,
+        ProviderLayout.is_active == True
+    ).order_by(ProviderLayout.position).all()
+    
+    # Obter configurações de layout de jogos individuais
     layouts = db.query(GameLayout).filter(
         GameLayout.section == section,
         GameLayout.is_active == True
     ).order_by(GameLayout.position).all()
-    
-    # Criar mapa de layout por game_code
     layout_map = {layout.game_code: layout for layout in layouts}
     
-    public_games = []
-    for g in games:
-        status_val = g.get("status")
-        is_active = (status_val == 1) or (status_val is True) or (str(status_val).lower() == "active")
-        if not is_active:
-            continue
+    # Se há configuração de provedores, usar ela
+    if provider_layouts:
+        # Buscar jogos de cada provedor configurado
+        all_games = []
+        for pl in provider_layouts:
+            games = await api.get_games(provider_code=pl.provider_code)
+            if games:
+                games = _normalize_games(games, pl.provider_code)
+                for g in games:
+                    status_val = g.get("status")
+                    is_active = (status_val == 1) or (status_val is True) or (str(status_val).lower() == "active")
+                    if not is_active:
+                        continue
+                    
+                    game_code = g.get("game_code") or g.get("code") or g.get("game_id") or g.get("id") or g.get("slug")
+                    all_games.append({
+                        "name": g.get("game_name") or g.get("name") or g.get("title") or g.get("gameTitle"),
+                        "code": game_code,
+                        "provider": pl.provider_code,
+                        "banner": g.get("banner") or g.get("image") or g.get("icon"),
+                        "status": "active"
+                    })
         
-        game_code = g.get("game_code") or g.get("code") or g.get("game_id") or g.get("id") or g.get("slug")
-        layout = layout_map.get(game_code)
+        # Organizar jogos por provedor conforme configuração
+        games_by_provider = {}
+        for pl in provider_layouts:
+            provider_games = [g for g in all_games if g["provider"] == pl.provider_code]
+            
+            # Ordenar jogos dentro do provedor (usar layout se disponível)
+            for g in provider_games:
+                layout = layout_map.get(g["code"])
+                g["position"] = layout.position if layout else 999999
+                g["is_featured"] = layout.is_featured if layout else False
+            
+            provider_games.sort(key=lambda x: x["position"])
+            
+            # Limitar quantidade de jogos conforme configuração
+            if pl.max_games > 0:
+                provider_games = provider_games[:pl.max_games]
+            
+            # Filtrar destaques se solicitado
+            if section == "featured":
+                provider_games = [g for g in provider_games if g.get("is_featured", False)]
+            
+            if provider_games:
+                games_by_provider[pl.provider_code] = {
+                    "provider_name": pl.provider_name,
+                    "position": pl.position,
+                    "games": provider_games
+                }
         
-        # Se há layout configurado, usar posição e destaque dele
-        # Se não há layout, jogo aparece no final
-        position = layout.position if layout else 999999
-        is_featured = layout.is_featured if layout else False
+        # Ordenar provedores por posição
+        sorted_providers = sorted(games_by_provider.items(), key=lambda x: x[1]["position"])
+        games_by_provider = {k: v for k, v in sorted_providers}
         
-        public_games.append({
-            "name": g.get("game_name") or g.get("name") or g.get("title") or g.get("gameTitle"),
-            "code": game_code,
-            "provider": g.get("provider_code") or g.get("provider") or g.get("provider_name") or g.get("vendor") or g.get("vendor_name") or chosen_provider,
-            "banner": g.get("banner") or g.get("image") or g.get("icon"),
-            "status": "active",
-            "position": position,
-            "is_featured": is_featured
-        })
-
-    # Ordenar por posição
-    public_games.sort(key=lambda x: x["position"])
-    
-    # Filtrar destaques se solicitado
-    if section == "featured":
-        public_games = [g for g in public_games if g["is_featured"]]
-
-    return {
-        "providers": providers,
-        "provider_code": chosen_provider,
-        "games": public_games
-    }
+        # Retornar todos os jogos em uma lista também (para compatibilidade)
+        all_public_games = []
+        for provider_data in games_by_provider.values():
+            all_public_games.extend(provider_data["games"])
+        
+        return {
+            "providers": providers,
+            "provider_code": None,
+            "games": all_public_games,  # Lista plana para compatibilidade
+            "games_by_provider": games_by_provider  # Organizado por provedor
+        }
+    else:
+        # Se não há configuração, retornar todos os provedores disponíveis (comportamento antigo)
+        # Usar primeiro provedor disponível
+        chosen_provider = _choose_provider(providers, None)
+        games = await api.get_games(provider_code=chosen_provider)
+        if games is None:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Não foi possível obter jogos da IGameWin. {api.last_error or ''}".strip()
+            )
+        games = _normalize_games(games, chosen_provider)
+        
+        public_games = []
+        for g in games:
+            status_val = g.get("status")
+            is_active = (status_val == 1) or (status_val is True) or (str(status_val).lower() == "active")
+            if not is_active:
+                continue
+            
+            game_code = g.get("game_code") or g.get("code") or g.get("game_id") or g.get("id") or g.get("slug")
+            layout = layout_map.get(game_code)
+            position = layout.position if layout else 999999
+            is_featured = layout.is_featured if layout else False
+            
+            public_games.append({
+                "name": g.get("game_name") or g.get("name") or g.get("title") or g.get("gameTitle"),
+                "code": game_code,
+                "provider": chosen_provider,
+                "banner": g.get("banner") or g.get("image") or g.get("icon"),
+                "status": "active",
+                "position": position,
+                "is_featured": is_featured
+            })
+        
+        public_games.sort(key=lambda x: x["position"])
+        if section == "featured":
+            public_games = [g for g in public_games if g["is_featured"]]
+        
+        return {
+            "providers": providers,
+            "provider_code": chosen_provider,
+            "games": public_games,
+            "games_by_provider": {}  # Retorna vazio quando não há configuração
+        }
 
 
 @public_router.get("/games/{game_code}/launch")
@@ -1483,6 +1601,102 @@ async def delete_game_layout(
     db.delete(layout)
     db.commit()
     return {"success": True, "message": "Layout deletado com sucesso"}
+
+
+# ========== PROVIDER LAYOUT ==========
+@router.get("/provider-layouts", response_model=List[ProviderLayoutResponse])
+async def get_provider_layouts(
+    section: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Listar configurações de layout dos provedores"""
+    query = db.query(ProviderLayout)
+    if section:
+        query = query.filter(ProviderLayout.section == section)
+    return query.order_by(ProviderLayout.position).all()
+
+
+@router.post("/provider-layouts", response_model=ProviderLayoutResponse, status_code=status.HTTP_201_CREATED)
+async def create_provider_layout(
+    layout_data: ProviderLayoutCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Criar configuração de layout para um provedor"""
+    # Verificar se já existe
+    existing = db.query(ProviderLayout).filter(
+        ProviderLayout.provider_code == layout_data.provider_code,
+        ProviderLayout.section == layout_data.section
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Layout já existe para este provedor nesta seção")
+    
+    layout = ProviderLayout(**layout_data.model_dump())
+    db.add(layout)
+    db.commit()
+    db.refresh(layout)
+    return layout
+
+
+@router.put("/provider-layouts/{layout_id}", response_model=ProviderLayoutResponse)
+async def update_provider_layout(
+    layout_id: int,
+    layout_data: ProviderLayoutUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Atualizar configuração de layout do provedor"""
+    layout = db.query(ProviderLayout).filter(ProviderLayout.id == layout_id).first()
+    if not layout:
+        raise HTTPException(status_code=404, detail="Layout não encontrado")
+    
+    update_data = layout_data.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(layout, field, value)
+    
+    db.commit()
+    db.refresh(layout)
+    return layout
+
+
+@router.post("/provider-layouts/reorder")
+async def reorder_provider_layouts(
+    layout_ids: List[int],
+    section: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Reordenar layouts de provedores (array de IDs na ordem desejada)"""
+    query = db.query(ProviderLayout)
+    if section:
+        query = query.filter(ProviderLayout.section == section)
+    layouts = query.all()
+    
+    # Atualizar posições
+    for idx, layout_id in enumerate(layout_ids):
+        layout = next((l for l in layouts if l.id == layout_id), None)
+        if layout:
+            layout.position = idx
+    
+    db.commit()
+    return {"success": True, "message": "Ordem dos provedores atualizada"}
+
+
+@router.delete("/provider-layouts/{layout_id}")
+async def delete_provider_layout(
+    layout_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Deletar configuração de layout do provedor"""
+    layout = db.query(ProviderLayout).filter(ProviderLayout.id == layout_id).first()
+    if not layout:
+        raise HTTPException(status_code=404, detail="Layout não encontrado")
+    
+    db.delete(layout)
+    db.commit()
+    return {"success": True, "message": "Layout do provedor deletado com sucesso"}
 
 
 # ========== THEMES ==========

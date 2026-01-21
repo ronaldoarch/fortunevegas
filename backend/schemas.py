@@ -237,6 +237,37 @@ class MediaAssetResponse(BaseModel):
         from_attributes = True
 
 
+# Provider Layout Schemas
+class ProviderLayoutBase(BaseModel):
+    provider_code: str
+    provider_name: str
+    position: int = 0
+    max_games: int = 30
+    is_active: bool = True
+    section: str = "home"
+
+
+class ProviderLayoutCreate(ProviderLayoutBase):
+    pass
+
+
+class ProviderLayoutUpdate(BaseModel):
+    provider_name: Optional[str] = None
+    position: Optional[int] = None
+    max_games: Optional[int] = None
+    is_active: Optional[bool] = None
+    section: Optional[str] = None
+
+
+class ProviderLayoutResponse(ProviderLayoutBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
 # Game Layout Schemas
 class GameLayoutBase(BaseModel):
     game_code: str
