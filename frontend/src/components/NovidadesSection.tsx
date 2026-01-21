@@ -156,7 +156,7 @@ export default function NovidadesSection({ filters, onProvidersLoaded }: Novidad
   const providerEntries = useMemo(() => {
     if (Object.keys(gamesByProvider).length > 0) {
       // Usar estrutura configurada pelo admin
-      return Object.entries(gamesByProvider).map(([providerCode, providerData]) => {
+      return Object.entries(gamesByProvider).map(([_providerCode, providerData]) => {
         // Aplicar filtros aos jogos do provedor
         let filteredProviderGames = providerData.games.filter((game) => {
           const matchesProvider = normalizedProvider
