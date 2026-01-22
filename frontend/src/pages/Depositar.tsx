@@ -174,7 +174,7 @@ export default function Depositar() {
                   />
                 </div>
                 <p className="text-gray-400 text-xs mt-2">
-                  Saldo atual: R$ {user.balance.toFixed(2).replace('.', ',')}
+                  Saldo atual: R$ {user?.balance.toFixed(2).replace('.', ',') || '0,00'}
                 </p>
               </div>
 

@@ -138,6 +138,13 @@ class DepositResponse(DepositBase):
         from_attributes = True
 
 
+# Public Deposit PIX Request Schema
+class DepositPixRequest(BaseModel):
+    amount: float
+    payer_name: str
+    payer_tax_id: str
+
+
 # Withdrawal Schemas
 class WithdrawalBase(BaseModel):
     user_id: int

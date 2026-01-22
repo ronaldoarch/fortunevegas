@@ -7,7 +7,7 @@ from typing import Optional
 from database import get_db
 from models import User, Deposit, Withdrawal, Gateway, TransactionStatus
 from suitpay_api import SuitPayAPI
-from schemas import DepositResponse, WithdrawalResponse
+from schemas import DepositResponse, WithdrawalResponse, DepositPixRequest
 from dependencies import get_current_user
 from datetime import datetime
 import json
@@ -58,9 +58,7 @@ def get_suitpay_client(gateway: Gateway) -> SuitPayAPI:
 
 @router.post("/deposit/pix", response_model=DepositResponse, status_code=status.HTTP_201_CREATED)
 async def create_pix_deposit(
-    amount: float,
-    payer_name: str,
-    payer_tax_id: str,
+    deposit_data: DepositPixRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -68,14 +66,12 @@ async def create_pix_deposit(
     Cria depósito via PIX usando SuitPay
     
     Args:
-        amount: Valor do depósito
-        payer_name: Nome do pagador
-        payer_tax_id: CPF/CNPJ do pagador
+        deposit_data: Dados do depósito (amount, payer_name, payer_tax_id)
     """
     # Usar usuário autenticado
     user = current_user
     
-    if amount <= 0:
+    if deposit_data.amount <= 0:
         raise HTTPException(status_code=400, detail="Valor deve ser maior que zero")
     
     # Buscar gateway PIX ativo
@@ -93,9 +89,9 @@ async def create_pix_deposit(
     
     # Gerar código PIX
     pix_response = await suitpay.generate_pix_payment(
-        value=amount,
-        payer_name=payer_name,
-        payer_tax_id=payer_tax_id,
+        value=deposit_data.amount,
+        payer_name=deposit_data.payer_name,
+        payer_tax_id=deposit_data.payer_tax_id,
         payer_email=user.email,
         request_number=request_number,
         url_callback=url_callback,
@@ -112,7 +108,7 @@ async def create_pix_deposit(
     deposit = Deposit(
         user_id=user.id,
         gateway_id=gateway.id,
-        amount=amount,
+        amount=deposit_data.amount,
         status=TransactionStatus.PENDING,
         transaction_id=str(uuid.uuid4()),
         external_id=pix_response.get("idTransaction") or request_number,
