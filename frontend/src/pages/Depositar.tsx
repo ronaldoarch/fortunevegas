@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { ArrowLeft, Wallet, QrCode, Copy, Check } from 'lucide-react';
+import { ArrowLeft, Wallet, Copy, Check } from 'lucide-react';
 
 // Backend FastAPI - usa variável de ambiente ou fallback para localhost
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -42,6 +42,12 @@ export default function Depositar() {
 
       if (amountValue < 10) {
         setError('Valor mínimo de depósito é R$ 10,00');
+        setLoading(false);
+        return;
+      }
+
+      if (!user) {
+        setError('Usuário não encontrado. Faça login novamente.');
         setLoading(false);
         return;
       }
