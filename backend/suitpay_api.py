@@ -50,76 +50,100 @@ class SuitPayAPI:
         value: float,
         payer_name: str,
         payer_tax_id: str,
+        payer_email: str,
         request_number: str,
-        url_callback: Optional[str] = None
+        url_callback: Optional[str] = None,
+        payer_phone: Optional[str] = None,
+        due_date: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """
         Gera código de pagamento PIX (Cash-in)
+        Endpoint: POST /api/v1/gateway/request-qrcode
         
         Args:
             value: Valor do pagamento
             payer_name: Nome do pagador
             payer_tax_id: CPF/CNPJ do pagador
+            payer_email: Email do pagador
             request_number: Número único da requisição (para controle)
             url_callback: URL do webhook (opcional)
+            payer_phone: Telefone do pagador (opcional, formato: DDD+TELEFONE)
+            due_date: Data de vencimento (opcional, formato: AAAA-MM-DD)
         
         Returns:
             Dict com dados do PIX ou None em caso de erro
         """
+        from datetime import datetime, timedelta
+        
+        # Se não informada, usar data de hoje + 1 dia
+        if not due_date:
+            due_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        
         payload = {
-            "value": value,
-            "payerName": payer_name,
-            "payerTaxId": payer_tax_id,
-            "requestNumber": request_number
+            "requestNumber": request_number,
+            "dueDate": due_date,
+            "amount": value,
+            "shippingAmount": 0.0,
+            "discountAmount": 0.0,
+            "client": {
+                "name": payer_name,
+                "document": payer_tax_id,
+                "email": payer_email
+            }
         }
         
+        if payer_phone:
+            payload["client"]["phoneNumber"] = payer_phone
+        
         if url_callback:
-            payload["urlCallback"] = url_callback
+            payload["callbackUrl"] = url_callback
         
         # Endpoint correto conforme documentação SuitPay
-        # POST /api/v1/gateway/pix/create
-        return await self._post("/api/v1/gateway/pix/create", payload)
+        # POST /api/v1/gateway/request-qrcode
+        return await self._post("/api/v1/gateway/request-qrcode", payload)
     
     async def transfer_pix(
         self,
         value: float,
-        destination_name: str,
-        destination_tax_id: str,
-        destination_bank: str,
-        destination_account: str,
-        destination_account_type: str = "CHECKING",  # CHECKING ou SAVINGS
-        url_callback: Optional[str] = None
+        pix_key: str,
+        type_key: str,
+        url_callback: Optional[str] = None,
+        document_validation: Optional[str] = None,
+        external_id: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """
         Realiza transferência via PIX (Cash-out)
+        Endpoint: POST /api/v1/gateway/pix-payment
         
         Args:
-            value: Valor a transferir
-            destination_name: Nome do destinatário
-            destination_tax_id: CPF/CNPJ do destinatário
-            destination_bank: Código do banco (ex: "001" para Banco do Brasil)
-            destination_account: Número da conta
-            destination_account_type: Tipo de conta (CHECKING ou SAVINGS)
+            value: Valor da transferência
+            pix_key: Chave PIX (CPF, CNPJ, telefone, email ou chave aleatória)
+            type_key: Tipo da chave PIX: "document", "phoneNumber", "email", "randomKey", "paymentCode"
             url_callback: URL do webhook (opcional)
+            document_validation: CPF/CNPJ para validar se pertence à chave PIX (opcional)
+            external_id: ID externo para controle de duplicidade (opcional)
         
         Returns:
             Dict com dados da transferência ou None em caso de erro
         """
         payload = {
             "value": value,
-            "destinationName": destination_name,
-            "destinationTaxId": destination_tax_id,
-            "destinationBank": destination_bank,
-            "destinationAccount": destination_account,
-            "destinationAccountType": destination_account_type
+            "key": pix_key,
+            "typeKey": type_key
         }
         
         if url_callback:
-            payload["urlCallback"] = url_callback
+            payload["callbackUrl"] = url_callback
+        
+        if document_validation:
+            payload["documentValidation"] = document_validation
+        
+        if external_id:
+            payload["externalId"] = external_id
         
         # Endpoint correto conforme documentação SuitPay
-        # POST /api/v1/gateway/pix/transfer
-        return await self._post("/api/v1/gateway/pix/transfer", payload)
+        # POST /api/v1/gateway/pix-payment
+        return await self._post("/api/v1/gateway/pix-payment", payload)
     
     @staticmethod
     def validate_webhook_hash(data: Dict[str, Any], client_secret: str) -> bool:

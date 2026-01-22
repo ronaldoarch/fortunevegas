@@ -3,6 +3,7 @@ Rotas públicas para pagamentos (depósitos e saques) usando SuitPay
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
+from typing import Optional
 from database import get_db
 from models import User, Deposit, Withdrawal, Gateway, TransactionStatus
 from suitpay_api import SuitPayAPI
@@ -95,8 +96,10 @@ async def create_pix_deposit(
         value=amount,
         payer_name=payer_name,
         payer_tax_id=payer_tax_id,
+        payer_email=user.email,
         request_number=request_number,
-        url_callback=url_callback
+        url_callback=url_callback,
+        payer_phone=user.phone
     )
     
     if not pix_response:
@@ -115,7 +118,8 @@ async def create_pix_deposit(
         external_id=pix_response.get("idTransaction") or request_number,
         metadata_json=json.dumps({
             "pix_code": pix_response.get("paymentCode"),
-            "pix_qr_code": pix_response.get("qrCode"),
+            "pix_qr_code": pix_response.get("paymentCode"),  # paymentCode é o QR Code
+            "pix_qr_code_base64": pix_response.get("paymentCodeBase64"),
             "request_number": request_number,
             "suitpay_response": pix_response
         })
@@ -131,24 +135,20 @@ async def create_pix_deposit(
 @router.post("/withdrawal/pix", response_model=WithdrawalResponse, status_code=status.HTTP_201_CREATED)
 async def create_pix_withdrawal(
     amount: float,
-    destination_name: str,
-    destination_tax_id: str,
-    destination_bank: str,
-    destination_account: str,
-    destination_account_type: str = "CHECKING",
+    pix_key: str,
+    type_key: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    document_validation: Optional[str] = None
 ):
     """
     Cria saque via PIX usando SuitPay
     
     Args:
         amount: Valor do saque
-        destination_name: Nome do destinatário
-        destination_tax_id: CPF/CNPJ do destinatário
-        destination_bank: Código do banco
-        destination_account: Número da conta
-        destination_account_type: Tipo de conta (CHECKING ou SAVINGS)
+        pix_key: Chave PIX (CPF, CNPJ, telefone, email ou chave aleatória)
+        type_key: Tipo da chave PIX: "document", "phoneNumber", "email", "randomKey", "paymentCode"
+        document_validation: CPF/CNPJ para validar se pertence à chave PIX (opcional)
     """
     # Usar usuário autenticado
     user = current_user
@@ -160,6 +160,14 @@ async def create_pix_withdrawal(
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Valor deve ser maior que zero")
     
+    # Validar tipo de chave
+    valid_types = ["document", "phoneNumber", "email", "randomKey", "paymentCode"]
+    if type_key not in valid_types:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Tipo de chave inválido. Use: {', '.join(valid_types)}"
+        )
+    
     # Buscar gateway PIX ativo
     gateway = get_active_pix_gateway(db)
     
@@ -170,15 +178,17 @@ async def create_pix_withdrawal(
     webhook_url = os.getenv("WEBHOOK_BASE_URL", "https://api.agenciamidas.com")
     url_callback = f"{webhook_url}/api/webhooks/suitpay/pix-cashout"
     
+    # Gerar external_id único para controle de duplicidade
+    external_id = f"WTH_{user.id}_{int(datetime.utcnow().timestamp())}"
+    
     # Realizar transferência PIX
     transfer_response = await suitpay.transfer_pix(
         value=amount,
-        destination_name=destination_name,
-        destination_tax_id=destination_tax_id,
-        destination_bank=destination_bank,
-        destination_account=destination_account,
-        destination_account_type=destination_account_type,
-        url_callback=url_callback
+        pix_key=pix_key,
+        type_key=type_key,
+        url_callback=url_callback,
+        document_validation=document_validation,
+        external_id=external_id
     )
     
     if not transfer_response:
@@ -187,6 +197,21 @@ async def create_pix_withdrawal(
             detail="Erro ao processar transferência PIX no gateway"
         )
     
+    # Verificar resposta da SuitPay
+    response_status = transfer_response.get("response", "").upper()
+    if response_status != "OK":
+        error_messages = {
+            "ACCOUNT_DOCUMENTS_NOT_VALIDATED": "Conta não validada",
+            "NO_FUNDS": "Saldo insuficiente no gateway",
+            "PIX_KEY_NOT_FOUND": "Chave PIX não encontrada",
+            "UNAUTHORIZED_IP": "IP não autorizado",
+            "DOCUMENT_VALIDATE": "A chave PIX não pertence ao documento informado",
+            "DUPLICATE_EXTERNAL_ID": "ID externo já foi utilizado",
+            "ERROR": "Erro interno no gateway"
+        }
+        error_msg = error_messages.get(response_status, f"Erro: {response_status}")
+        raise HTTPException(status_code=400, detail=error_msg)
+    
     # Criar registro de saque
     withdrawal = Withdrawal(
         user_id=user.id,
@@ -194,12 +219,12 @@ async def create_pix_withdrawal(
         amount=amount,
         status=TransactionStatus.PENDING,
         transaction_id=str(uuid.uuid4()),
-        external_id=transfer_response.get("idTransaction"),
+        external_id=transfer_response.get("idTransaction") or external_id,
         metadata_json=json.dumps({
-            "destination_name": destination_name,
-            "destination_tax_id": destination_tax_id,
-            "destination_bank": destination_bank,
-            "destination_account": destination_account,
+            "pix_key": pix_key,
+            "type_key": type_key,
+            "document_validation": document_validation,
+            "external_id": external_id,
             "suitpay_response": transfer_response
         })
     )
