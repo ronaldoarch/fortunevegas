@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import PromoBanner from './components/PromoBanner';
 import Header from './components/Header';
 import HeroBanner from './components/HeroBanner';
 import SearchBar from './components/SearchBar';
-import GameCards from './components/GameCards';
 import NovidadesSection from './components/NovidadesSection';
 import Sidebar from './components/Sidebar';
 import Footer from './components/Footer';
@@ -45,7 +43,6 @@ function App() {
 
   return (
     <div className="min-h-screen bg-[#0a0e0f] text-white">
-      <PromoBanner />
       <Header 
         onMenuClick={() => setSidebarOpen(true)}
         onLoginClick={() => {
@@ -69,7 +66,6 @@ function App() {
           <main className="pb-20 md:pb-0">
             <HeroBanner />
             <SearchBar />
-            <GameCards />
             <NovidadesSection
               filters={filters}
               onProvidersLoaded={handleProvidersLoaded}
