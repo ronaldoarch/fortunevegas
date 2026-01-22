@@ -273,3 +273,39 @@ class Affiliate(Base):
     
     # Relationships - linkar usuários a afiliados
     # user.affiliate_id seria adicionado em User se necessário
+
+
+class IGameWinProviderConfig(Base):
+    """Configuração de provedores preferidos do IGameWin (até 3)"""
+    __tablename__ = "igamewin_provider_configs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    provider_code = Column(String(100), unique=True, nullable=False, index=True)  # Código do provedor (ex: PGSOFT, PRAGMATIC)
+    provider_name = Column(String(255), nullable=False)  # Nome do provedor
+    position = Column(Integer, nullable=False)  # Posição/ordem (1, 2 ou 3)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class TrackingType(str, enum.Enum):
+    WEBHOOK = "webhook"
+    PIXEL = "pixel"  # Facebook Pixel, Google Pixel, etc
+    API = "api"  # API de conversões
+
+
+class TrackingConfig(Base):
+    """Configuração de tracking para conversões (webhooks, pixels, APIs)"""
+    __tablename__ = "tracking_configs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)  # Nome da configuração (ex: "Facebook Pixel", "Webhook Conversões")
+    type = Column(Enum(TrackingType), nullable=False)  # Tipo: webhook, pixel, api
+    url = Column(String(500))  # URL do webhook ou endpoint da API
+    pixel_id = Column(String(255))  # ID do pixel (Facebook, Google, etc)
+    access_token = Column(String(500))  # Token de acesso para API
+    api_key = Column(String(500))  # API Key alternativa
+    is_active = Column(Boolean, default=True, nullable=False)
+    metadata_json = Column(Text)  # JSON com configurações adicionais
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

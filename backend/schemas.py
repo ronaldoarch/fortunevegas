@@ -357,3 +357,67 @@ class AffiliateResponse(AffiliateBase):
     
     class Config:
         from_attributes = True
+
+
+# IGameWin Provider Config Schemas
+class IGameWinProviderConfigBase(BaseModel):
+    provider_code: str
+    provider_name: str
+    position: int  # 1, 2 ou 3
+    is_active: bool = True
+
+
+class IGameWinProviderConfigCreate(IGameWinProviderConfigBase):
+    pass
+
+
+class IGameWinProviderConfigUpdate(BaseModel):
+    provider_code: Optional[str] = None
+    provider_name: Optional[str] = None
+    position: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class IGameWinProviderConfigResponse(IGameWinProviderConfigBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+# Tracking Config Schemas
+class TrackingConfigBase(BaseModel):
+    name: str
+    type: str  # webhook, pixel, api
+    url: Optional[str] = None
+    pixel_id: Optional[str] = None
+    access_token: Optional[str] = None
+    api_key: Optional[str] = None
+    is_active: bool = True
+    metadata_json: Optional[str] = None
+
+
+class TrackingConfigCreate(TrackingConfigBase):
+    pass
+
+
+class TrackingConfigUpdate(BaseModel):
+    name: Optional[str] = None
+    type: Optional[str] = None
+    url: Optional[str] = None
+    pixel_id: Optional[str] = None
+    access_token: Optional[str] = None
+    api_key: Optional[str] = None
+    is_active: Optional[bool] = None
+    metadata_json: Optional[str] = None
+
+
+class TrackingConfigResponse(TrackingConfigBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True

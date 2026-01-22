@@ -244,10 +244,22 @@ export default function Admin() {
                 onClick={() => setActiveTab('igamewin')}
               />
               <NavSubItem
+                icon={<Settings />}
+                label="Provedores IGameWin"
+                active={activeTab === 'igamewin-providers'}
+                onClick={() => setActiveTab('igamewin-providers')}
+              />
+              <NavSubItem
                 icon={<Activity />}
                 label="Grade de Jogos"
                 active={activeTab === 'game-layout'}
                 onClick={() => setActiveTab('game-layout')}
+              />
+              <NavSubItem
+                icon={<TrendingUp />}
+                label="Tracking"
+                active={activeTab === 'tracking'}
+                onClick={() => setActiveTab('tracking')}
               />
               <NavSubItem
                 icon={<Tag />}
@@ -280,6 +292,8 @@ export default function Admin() {
           {activeTab === 'ftds' && <FTDsTab token={token || ''} />}
           {activeTab === 'gateways' && <GatewaysTab token={token || ''} />}
           {activeTab === 'igamewin' && <IGameWinTab token={token || ''} />}
+          {activeTab === 'igamewin-providers' && <IGameWinProvidersTab token={token || ''} />}
+          {activeTab === 'tracking' && <TrackingTab token={token || ''} />}
           {activeTab === 'settings' && <SettingsTab token={token || ''} />}
           {activeTab === 'branding' && <BrandingTab token={token || ''} />}
           {activeTab === 'themes' && <ThemesTab token={token || ''} />}
@@ -2994,6 +3008,695 @@ function AffiliatesTab({ token }: { token: string }) {
             )}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+function IGameWinProvidersTab({ token }: { token: string }) {
+  const [configs, setConfigs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [availableProviders, setAvailableProviders] = useState<any[]>([]);
+  const [loadingProviders, setLoadingProviders] = useState(false);
+  const [form, setForm] = useState({ provider_code: '', provider_name: '', position: 1, is_active: true });
+  const [editingId, setEditingId] = useState<number | null>(null);
+
+  const fetchConfigs = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch(`${API_URL}/api/admin/igamewin-provider-configs`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error('Falha ao carregar configurações');
+      setConfigs(await res.json());
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchAvailableProviders = async () => {
+    setLoadingProviders(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/igamewin/games`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAvailableProviders(data.providers || []);
+      }
+    } catch (err) {
+      console.error('Erro ao buscar provedores:', err);
+    } finally {
+      setLoadingProviders(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchConfigs();
+    fetchAvailableProviders();
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    setMessage('');
+
+    try {
+      const url = editingId
+        ? `${API_URL}/api/admin/igamewin-provider-configs/${editingId}`
+        : `${API_URL}/api/admin/igamewin-provider-configs`;
+      const method = editingId ? 'PUT' : 'POST';
+
+      const res = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(form)
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.detail || 'Falha ao salvar configuração');
+      }
+
+      setMessage(editingId ? 'Configuração atualizada com sucesso!' : 'Configuração criada com sucesso!');
+      setForm({ provider_code: '', provider_name: '', position: 1, is_active: true });
+      setEditingId(null);
+      await fetchConfigs();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEdit = (config: any) => {
+    setForm({
+      provider_code: config.provider_code,
+      provider_name: config.provider_name,
+      position: config.position,
+      is_active: config.is_active
+    });
+    setEditingId(config.id);
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('Tem certeza que deseja deletar esta configuração?')) return;
+
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/igamewin-provider-configs/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error('Falha ao deletar');
+      setMessage('Configuração deletada com sucesso!');
+      await fetchConfigs();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleReorder = async (configIds: number[]) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/igamewin-provider-configs/reorder`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(configIds)
+      });
+      if (!res.ok) throw new Error('Falha ao reordenar');
+      setMessage('Ordem atualizada com sucesso!');
+      await fetchConfigs();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const moveUp = (index: number) => {
+    if (index === 0) return;
+    const newConfigs = [...configs];
+    [newConfigs[index - 1], newConfigs[index]] = [newConfigs[index], newConfigs[index - 1]];
+    setConfigs(newConfigs);
+    handleReorder(newConfigs.map(c => c.id));
+  };
+
+  const moveDown = (index: number) => {
+    if (index === configs.length - 1) return;
+    const newConfigs = [...configs];
+    [newConfigs[index], newConfigs[index + 1]] = [newConfigs[index + 1], newConfigs[index]];
+    setConfigs(newConfigs);
+    handleReorder(newConfigs.map(c => c.id));
+  };
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-2xl font-bold">Provedores IGameWin</h2>
+      <p className="text-gray-400">Configure até 3 provedores preferidos e defina a ordem de exibição</p>
+
+      {error && <div className="bg-red-500/20 border border-red-500 text-red-200 px-4 py-3 rounded">{error}</div>}
+      {message && <div className="bg-green-500/20 border border-green-500 text-green-200 px-4 py-3 rounded">{message}</div>}
+
+      <form onSubmit={handleSubmit} className="bg-gray-800 p-6 rounded-lg space-y-4">
+        <h3 className="text-lg font-semibold">{editingId ? 'Editar' : 'Adicionar'} Provedor</h3>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">Código do Provedor</label>
+            <input
+              type="text"
+              value={form.provider_code}
+              onChange={(e) => setForm({ ...form, provider_code: e.target.value.toUpperCase() })}
+              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+              required
+              placeholder="Ex: PGSOFT, PRAGMATIC"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">Nome do Provedor</label>
+            <input
+              type="text"
+              value={form.provider_name}
+              onChange={(e) => setForm({ ...form, provider_name: e.target.value })}
+              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+              required
+              placeholder="Ex: PG Soft, Pragmatic Play"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">Posição (1, 2 ou 3)</label>
+            <select
+              value={form.position}
+              onChange={(e) => setForm({ ...form, position: parseInt(e.target.value) })}
+              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+              required
+            >
+              <option value={1}>1 - Primeiro</option>
+              <option value={2}>2 - Segundo</option>
+              <option value={3}>3 - Terceiro</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="is_active"
+              checked={form.is_active}
+              onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
+              className="w-4 h-4"
+            />
+            <label htmlFor="is_active" className="text-sm">Ativo</label>
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            type="submit"
+            disabled={loading}
+            className="bg-[#d4af37] hover:bg-[#ffd700] text-black px-4 py-2 rounded font-semibold disabled:opacity-50"
+          >
+            {editingId ? 'Atualizar' : 'Adicionar'}
+          </button>
+          {editingId && (
+            <button
+              type="button"
+              onClick={() => {
+                setForm({ provider_code: '', provider_name: '', position: 1, is_active: true });
+                setEditingId(null);
+              }}
+              className="bg-gray-600 hover:bg-gray-500 px-4 py-2 rounded"
+            >
+              Cancelar
+            </button>
+          )}
+        </div>
+      </form>
+
+      {loadingProviders && (
+        <div className="bg-gray-800 p-4 rounded">
+          <p className="text-gray-400">Carregando provedores disponíveis...</p>
+        </div>
+      )}
+
+      {availableProviders.length > 0 && (
+        <div className="bg-gray-800 p-4 rounded">
+          <h3 className="text-lg font-semibold mb-2">Provedores Disponíveis</h3>
+          <div className="flex flex-wrap gap-2">
+            {availableProviders.map((p: any) => (
+              <button
+                key={p.code || p.provider_code}
+                onClick={() => {
+                  if (!configs.find(c => c.provider_code === (p.code || p.provider_code))) {
+                    setForm({
+                      provider_code: p.code || p.provider_code,
+                      provider_name: p.name || p.provider_name || p.code || p.provider_code,
+                      position: configs.length + 1,
+                      is_active: true
+                    });
+                  }
+                }}
+                className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm"
+                disabled={configs.some(c => c.provider_code === (p.code || p.provider_code))}
+              >
+                {p.name || p.provider_name || p.code || p.provider_code}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="bg-gray-800 rounded-lg overflow-hidden">
+        <div className="p-4 border-b border-gray-700">
+          <h3 className="text-lg font-semibold">Provedores Configurados ({configs.length}/3)</h3>
+        </div>
+        {loading ? (
+          <div className="p-4 text-center text-gray-400">Carregando...</div>
+        ) : configs.length === 0 ? (
+          <div className="p-4 text-center text-gray-400">Nenhum provedor configurado</div>
+        ) : (
+          <table className="w-full">
+            <thead className="bg-gray-900">
+              <tr>
+                <th className="px-4 py-3 text-left">Posição</th>
+                <th className="px-4 py-3 text-left">Código</th>
+                <th className="px-4 py-3 text-left">Nome</th>
+                <th className="px-4 py-3 text-left">Status</th>
+                <th className="px-4 py-3 text-left">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {configs.map((config, index) => (
+                <tr key={config.id} className="border-b border-gray-700">
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold">{config.position}</span>
+                      <div className="flex flex-col gap-1">
+                        <button
+                          onClick={() => moveUp(index)}
+                          disabled={index === 0 || loading}
+                          className="text-xs text-gray-400 hover:text-white disabled:opacity-50"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          onClick={() => moveDown(index)}
+                          disabled={index === configs.length - 1 || loading}
+                          className="text-xs text-gray-400 hover:text-white disabled:opacity-50"
+                        >
+                          ↓
+                        </button>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">{config.provider_code}</td>
+                  <td className="px-4 py-3">{config.provider_name}</td>
+                  <td className="px-4 py-3">
+                    <span className={`px-2 py-1 rounded text-xs ${config.is_active ? 'bg-green-500/20 text-green-300' : 'bg-gray-500/20 text-gray-300'}`}>
+                      {config.is_active ? 'Ativo' : 'Inativo'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleEdit(config)}
+                        className="text-[#d4af37] hover:text-[#ffd700] text-xs"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        onClick={() => handleDelete(config.id)}
+                        className="text-red-400 hover:text-red-300 text-xs"
+                      >
+                        Deletar
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TrackingTab({ token }: { token: string }) {
+  const [configs, setConfigs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [form, setForm] = useState({
+    name: '',
+    type: 'webhook',
+    url: '',
+    pixel_id: '',
+    access_token: '',
+    api_key: '',
+    is_active: true,
+    metadata_json: ''
+  });
+  const [editingId, setEditingId] = useState<number | null>(null);
+
+  const fetchConfigs = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch(`${API_URL}/api/admin/tracking-configs`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error('Falha ao carregar configurações');
+      setConfigs(await res.json());
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchConfigs();
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    setMessage('');
+
+    try {
+      const url = editingId
+        ? `${API_URL}/api/admin/tracking-configs/${editingId}`
+        : `${API_URL}/api/admin/tracking-configs`;
+      const method = editingId ? 'PUT' : 'POST';
+
+      const res = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(form)
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.detail || 'Falha ao salvar configuração');
+      }
+
+      setMessage(editingId ? 'Configuração atualizada com sucesso!' : 'Configuração criada com sucesso!');
+      setForm({
+        name: '',
+        type: 'webhook',
+        url: '',
+        pixel_id: '',
+        access_token: '',
+        api_key: '',
+        is_active: true,
+        metadata_json: ''
+      });
+      setEditingId(null);
+      await fetchConfigs();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEdit = (config: any) => {
+    setForm({
+      name: config.name,
+      type: config.type,
+      url: config.url || '',
+      pixel_id: config.pixel_id || '',
+      access_token: config.access_token || '',
+      api_key: config.api_key || '',
+      is_active: config.is_active,
+      metadata_json: config.metadata_json || ''
+    });
+    setEditingId(config.id);
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('Tem certeza que deseja deletar esta configuração?')) return;
+
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/tracking-configs/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error('Falha ao deletar');
+      setMessage('Configuração deletada com sucesso!');
+      await fetchConfigs();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-2xl font-bold">Tracking de Conversões</h2>
+      <p className="text-gray-400">Configure webhooks, pixels e APIs para rastrear conversões</p>
+
+      {error && <div className="bg-red-500/20 border border-red-500 text-red-200 px-4 py-3 rounded">{error}</div>}
+      {message && <div className="bg-green-500/20 border border-green-500 text-green-200 px-4 py-3 rounded">{message}</div>}
+
+      <form onSubmit={handleSubmit} className="bg-gray-800 p-6 rounded-lg space-y-4">
+        <h3 className="text-lg font-semibold">{editingId ? 'Editar' : 'Adicionar'} Configuração de Tracking</h3>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">Nome</label>
+            <input
+              type="text"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+              required
+              placeholder="Ex: Facebook Pixel, Webhook Conversões"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">Tipo</label>
+            <select
+              value={form.type}
+              onChange={(e) => setForm({ ...form, type: e.target.value })}
+              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+              required
+            >
+              <option value="webhook">Webhook</option>
+              <option value="pixel">Pixel</option>
+              <option value="api">API</option>
+            </select>
+          </div>
+        </div>
+
+        {form.type === 'webhook' && (
+          <div>
+            <label className="block text-sm font-medium mb-2">URL do Webhook *</label>
+            <input
+              type="url"
+              value={form.url}
+              onChange={(e) => setForm({ ...form, url: e.target.value })}
+              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+              required={form.type === 'webhook'}
+              placeholder="https://exemplo.com/webhook"
+            />
+          </div>
+        )}
+
+        {form.type === 'pixel' && (
+          <div>
+            <label className="block text-sm font-medium mb-2">Pixel ID *</label>
+            <input
+              type="text"
+              value={form.pixel_id}
+              onChange={(e) => setForm({ ...form, pixel_id: e.target.value })}
+              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+              required={form.type === 'pixel'}
+              placeholder="Ex: 123456789012345"
+            />
+          </div>
+        )}
+
+        {form.type === 'api' && (
+          <>
+            <div>
+              <label className="block text-sm font-medium mb-2">Access Token</label>
+              <input
+                type="password"
+                value={form.access_token}
+                onChange={(e) => setForm({ ...form, access_token: e.target.value })}
+                className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+                placeholder="Token de acesso da API"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">API Key</label>
+              <input
+                type="password"
+                value={form.api_key}
+                onChange={(e) => setForm({ ...form, api_key: e.target.value })}
+                className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+                placeholder="Chave da API"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">URL da API (opcional)</label>
+              <input
+                type="url"
+                value={form.url}
+                onChange={(e) => setForm({ ...form, url: e.target.value })}
+                className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+                placeholder="https://api.exemplo.com"
+              />
+            </div>
+          </>
+        )}
+
+        <div>
+          <label className="block text-sm font-medium mb-2">Metadata JSON (opcional)</label>
+          <textarea
+            value={form.metadata_json}
+            onChange={(e) => setForm({ ...form, metadata_json: e.target.value })}
+            className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+            rows={3}
+            placeholder='{"key": "value"}'
+          />
+        </div>
+
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            id="is_active"
+            checked={form.is_active}
+            onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
+            className="w-4 h-4"
+          />
+          <label htmlFor="is_active" className="text-sm">Ativo</label>
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            type="submit"
+            disabled={loading}
+            className="bg-[#d4af37] hover:bg-[#ffd700] text-black px-4 py-2 rounded font-semibold disabled:opacity-50"
+          >
+            {editingId ? 'Atualizar' : 'Adicionar'}
+          </button>
+          {editingId && (
+            <button
+              type="button"
+              onClick={() => {
+                setForm({
+                  name: '',
+                  type: 'webhook',
+                  url: '',
+                  pixel_id: '',
+                  access_token: '',
+                  api_key: '',
+                  is_active: true,
+                  metadata_json: ''
+                });
+                setEditingId(null);
+              }}
+              className="bg-gray-600 hover:bg-gray-500 px-4 py-2 rounded"
+            >
+              Cancelar
+            </button>
+          )}
+        </div>
+      </form>
+
+      <div className="bg-gray-800 rounded-lg overflow-hidden">
+        <div className="p-4 border-b border-gray-700">
+          <h3 className="text-lg font-semibold">Configurações de Tracking</h3>
+        </div>
+        {loading ? (
+          <div className="p-4 text-center text-gray-400">Carregando...</div>
+        ) : configs.length === 0 ? (
+          <div className="p-4 text-center text-gray-400">Nenhuma configuração de tracking</div>
+        ) : (
+          <table className="w-full">
+            <thead className="bg-gray-900">
+              <tr>
+                <th className="px-4 py-3 text-left">Nome</th>
+                <th className="px-4 py-3 text-left">Tipo</th>
+                <th className="px-4 py-3 text-left">Configuração</th>
+                <th className="px-4 py-3 text-left">Status</th>
+                <th className="px-4 py-3 text-left">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {configs.map((config) => (
+                <tr key={config.id} className="border-b border-gray-700">
+                  <td className="px-4 py-3">{config.name}</td>
+                  <td className="px-4 py-3">
+                    <span className="px-2 py-1 rounded text-xs bg-blue-500/20 text-blue-300 capitalize">
+                      {config.type}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="text-xs text-gray-400">
+                      {config.type === 'webhook' && config.url && (
+                        <div>URL: {config.url.substring(0, 50)}...</div>
+                      )}
+                      {config.type === 'pixel' && config.pixel_id && (
+                        <div>Pixel ID: {config.pixel_id}</div>
+                      )}
+                      {config.type === 'api' && (
+                        <div>
+                          {config.url && <div>URL: {config.url.substring(0, 30)}...</div>}
+                          {config.access_token && <div>Token: ••••••••</div>}
+                          {config.api_key && <div>API Key: ••••••••</div>}
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`px-2 py-1 rounded text-xs ${config.is_active ? 'bg-green-500/20 text-green-300' : 'bg-gray-500/20 text-gray-300'}`}>
+                      {config.is_active ? 'Ativo' : 'Inativo'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleEdit(config)}
+                        className="text-[#d4af37] hover:text-[#ffd700] text-xs"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        onClick={() => handleDelete(config.id)}
+                        className="text-red-400 hover:text-red-300 text-xs"
+                      >
+                        Deletar
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );

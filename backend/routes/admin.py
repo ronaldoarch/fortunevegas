@@ -12,7 +12,8 @@ from dependencies import get_current_admin_user, get_current_user
 from models import (
     User, Deposit, Withdrawal, FTD, Gateway, IGameWinAgent, FTDSettings,
     TransactionStatus, UserRole, Bet, BetStatus, Notification, NotificationType,
-    GameLayout, ProviderLayout, Theme, Affiliate
+    GameLayout, ProviderLayout, Theme, Affiliate,
+    IGameWinProviderConfig, TrackingConfig, TrackingType
 )
 from schemas import (
     UserResponse, UserCreate, UserUpdate,
@@ -25,7 +26,9 @@ from schemas import (
     GameLayoutResponse, GameLayoutCreate, GameLayoutUpdate,
     ProviderLayoutResponse, ProviderLayoutCreate, ProviderLayoutUpdate,
     ThemeResponse, ThemeCreate, ThemeUpdate,
-    AffiliateResponse, AffiliateCreate, AffiliateUpdate
+    AffiliateResponse, AffiliateCreate, AffiliateUpdate,
+    IGameWinProviderConfigResponse, IGameWinProviderConfigCreate, IGameWinProviderConfigUpdate,
+    TrackingConfigResponse, TrackingConfigCreate, TrackingConfigUpdate
 )
 from auth import get_password_hash
 from igamewin_api import get_igamewin_api
@@ -687,7 +690,83 @@ async def public_games(
         }
     
     # Caso contrário, retorna jogos organizados por provedor conforme configuração admin
-    # Obter configuração de ordem dos provedores
+    # Primeiro verificar se há configuração de provedores IGameWin (até 3)
+    igamewin_provider_configs = db.query(IGameWinProviderConfig).filter(
+        IGameWinProviderConfig.is_active == True
+    ).order_by(IGameWinProviderConfig.position).all()
+    
+    # Se há configuração de provedores IGameWin, usar ela; senão usar ProviderLayout
+    if igamewin_provider_configs:
+        # Usar apenas os provedores configurados do IGameWin
+        provider_codes = [config.provider_code for config in igamewin_provider_configs]
+        # Buscar jogos apenas dos provedores configurados
+        all_games = []
+        for config in igamewin_provider_configs:
+            games = await api.get_games(provider_code=config.provider_code)
+            if games:
+                games = _normalize_games(games, config.provider_code)
+                for g in games:
+                    status_val = g.get("status")
+                    is_active = (status_val == 1) or (status_val is True) or (str(status_val).lower() == "active")
+                    if not is_active:
+                        continue
+                    
+                    game_code = g.get("game_code") or g.get("code") or g.get("game_id") or g.get("id") or g.get("slug")
+                    all_games.append({
+                        "name": g.get("game_name") or g.get("name") or g.get("title") or g.get("gameTitle"),
+                        "code": game_code,
+                        "provider": config.provider_code,
+                        "banner": g.get("banner") or g.get("image") or g.get("icon"),
+                        "status": "active"
+                    })
+        
+        # Organizar jogos por provedor conforme configuração IGameWin
+        games_by_provider = {}
+        for config in igamewin_provider_configs:
+            provider_games = [g for g in all_games if g["provider"] == config.provider_code]
+            
+            # Ordenar jogos dentro do provedor (usar layout se disponível)
+            layouts = db.query(GameLayout).filter(
+                GameLayout.section == section,
+                GameLayout.is_active == True
+            ).order_by(GameLayout.position).all()
+            layout_map = {layout.game_code: layout for layout in layouts}
+            
+            for g in provider_games:
+                layout = layout_map.get(g["code"])
+                g["position"] = layout.position if layout else 999999
+                g["is_featured"] = layout.is_featured if layout else False
+            
+            provider_games.sort(key=lambda x: x["position"])
+            
+            # Filtrar destaques se solicitado
+            if section == "featured":
+                provider_games = [g for g in provider_games if g.get("is_featured", False)]
+            
+            if provider_games:
+                games_by_provider[config.provider_code] = {
+                    "provider_name": config.provider_name,
+                    "position": config.position,
+                    "games": provider_games
+                }
+        
+        # Ordenar provedores por posição
+        sorted_providers = sorted(games_by_provider.items(), key=lambda x: x[1]["position"])
+        games_by_provider = {k: v for k, v in sorted_providers}
+        
+        # Retornar todos os jogos em uma lista também (para compatibilidade)
+        all_public_games = []
+        for provider_data in games_by_provider.values():
+            all_public_games.extend(provider_data["games"])
+        
+        return {
+            "providers": providers,
+            "provider_code": None,
+            "games": all_public_games,  # Lista plana para compatibilidade
+            "games_by_provider": games_by_provider  # Organizado por provedor
+        }
+    
+    # Se não há configuração IGameWin, usar ProviderLayout (comportamento anterior)
     provider_layouts = db.query(ProviderLayout).filter(
         ProviderLayout.section == section,
         ProviderLayout.is_active == True
@@ -1860,3 +1939,248 @@ async def delete_affiliate(
     db.delete(affiliate)
     db.commit()
     return {"success": True, "message": "Afiliado deletado com sucesso"}
+
+
+# ========== IGAMEWIN PROVIDER CONFIG ==========
+@router.get("/igamewin-provider-configs", response_model=List[IGameWinProviderConfigResponse])
+async def get_igamewin_provider_configs(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Listar configurações de provedores IGameWin (até 3)"""
+    configs = db.query(IGameWinProviderConfig).order_by(IGameWinProviderConfig.position).all()
+    return configs
+
+
+@router.get("/igamewin-provider-configs/{config_id}", response_model=IGameWinProviderConfigResponse)
+async def get_igamewin_provider_config(
+    config_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Obter configuração específica"""
+    config = db.query(IGameWinProviderConfig).filter(IGameWinProviderConfig.id == config_id).first()
+    if not config:
+        raise HTTPException(status_code=404, detail="Configuração não encontrada")
+    return config
+
+
+@router.post("/igamewin-provider-configs", response_model=IGameWinProviderConfigResponse, status_code=status.HTTP_201_CREATED)
+async def create_igamewin_provider_config(
+    config_data: IGameWinProviderConfigCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Criar configuração de provedor IGameWin"""
+    # Validar posição (1, 2 ou 3)
+    if config_data.position not in [1, 2, 3]:
+        raise HTTPException(status_code=400, detail="Posição deve ser 1, 2 ou 3")
+    
+    # Verificar se já existe configuração com esse provider_code
+    existing = db.query(IGameWinProviderConfig).filter(
+        IGameWinProviderConfig.provider_code == config_data.provider_code
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Provedor já configurado")
+    
+    # Verificar se já existe configuração com essa posição
+    existing_pos = db.query(IGameWinProviderConfig).filter(
+        IGameWinProviderConfig.position == config_data.position
+    ).first()
+    if existing_pos:
+        raise HTTPException(status_code=400, detail=f"Posição {config_data.position} já está em uso")
+    
+    # Limitar a 3 configurações
+    count = db.query(IGameWinProviderConfig).count()
+    if count >= 3:
+        raise HTTPException(status_code=400, detail="Máximo de 3 provedores permitidos")
+    
+    config = IGameWinProviderConfig(**config_data.model_dump())
+    db.add(config)
+    db.commit()
+    db.refresh(config)
+    return config
+
+
+@router.put("/igamewin-provider-configs/{config_id}", response_model=IGameWinProviderConfigResponse)
+async def update_igamewin_provider_config(
+    config_id: int,
+    config_data: IGameWinProviderConfigUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Atualizar configuração de provedor IGameWin"""
+    config = db.query(IGameWinProviderConfig).filter(IGameWinProviderConfig.id == config_id).first()
+    if not config:
+        raise HTTPException(status_code=404, detail="Configuração não encontrada")
+    
+    update_data = config_data.model_dump(exclude_unset=True)
+    
+    # Validar posição se fornecida
+    if "position" in update_data and update_data["position"] not in [1, 2, 3]:
+        raise HTTPException(status_code=400, detail="Posição deve ser 1, 2 ou 3")
+    
+    # Se mudando posição, verificar se não conflita
+    if "position" in update_data and update_data["position"] != config.position:
+        existing_pos = db.query(IGameWinProviderConfig).filter(
+            IGameWinProviderConfig.position == update_data["position"],
+            IGameWinProviderConfig.id != config_id
+        ).first()
+        if existing_pos:
+            raise HTTPException(status_code=400, detail=f"Posição {update_data['position']} já está em uso")
+    
+    # Se mudando provider_code, verificar se não conflita
+    if "provider_code" in update_data and update_data["provider_code"] != config.provider_code:
+        existing = db.query(IGameWinProviderConfig).filter(
+            IGameWinProviderConfig.provider_code == update_data["provider_code"],
+            IGameWinProviderConfig.id != config_id
+        ).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Provedor já configurado")
+    
+    for field, value in update_data.items():
+        setattr(config, field, value)
+    
+    db.commit()
+    db.refresh(config)
+    return config
+
+
+@router.delete("/igamewin-provider-configs/{config_id}")
+async def delete_igamewin_provider_config(
+    config_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Deletar configuração de provedor IGameWin"""
+    config = db.query(IGameWinProviderConfig).filter(IGameWinProviderConfig.id == config_id).first()
+    if not config:
+        raise HTTPException(status_code=404, detail="Configuração não encontrada")
+    
+    db.delete(config)
+    db.commit()
+    return {"success": True, "message": "Configuração deletada com sucesso"}
+
+
+@router.post("/igamewin-provider-configs/reorder")
+async def reorder_igamewin_provider_configs(
+    config_ids: List[int],
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Reordenar configurações de provedores IGameWin"""
+    if len(config_ids) > 3:
+        raise HTTPException(status_code=400, detail="Máximo de 3 provedores permitidos")
+    
+    configs = db.query(IGameWinProviderConfig).filter(IGameWinProviderConfig.id.in_(config_ids)).all()
+    if len(configs) != len(config_ids):
+        raise HTTPException(status_code=400, detail="Uma ou mais configurações não encontradas")
+    
+    # Atualizar posições
+    for idx, config_id in enumerate(config_ids, start=1):
+        config = next(c for c in configs if c.id == config_id)
+        config.position = idx
+    
+    db.commit()
+    return {"success": True, "message": "Ordem atualizada com sucesso"}
+
+
+# ========== TRACKING CONFIG ==========
+@router.get("/tracking-configs", response_model=List[TrackingConfigResponse])
+async def get_tracking_configs(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Listar configurações de tracking"""
+    configs = db.query(TrackingConfig).order_by(TrackingConfig.created_at.desc()).all()
+    return configs
+
+
+@router.get("/tracking-configs/{config_id}", response_model=TrackingConfigResponse)
+async def get_tracking_config(
+    config_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Obter configuração de tracking específica"""
+    config = db.query(TrackingConfig).filter(TrackingConfig.id == config_id).first()
+    if not config:
+        raise HTTPException(status_code=404, detail="Configuração não encontrada")
+    return config
+
+
+@router.post("/tracking-configs", response_model=TrackingConfigResponse, status_code=status.HTTP_201_CREATED)
+async def create_tracking_config(
+    config_data: TrackingConfigCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Criar configuração de tracking"""
+    # Validar tipo
+    if config_data.type not in ["webhook", "pixel", "api"]:
+        raise HTTPException(status_code=400, detail="Tipo deve ser: webhook, pixel ou api")
+    
+    # Validar campos obrigatórios por tipo
+    if config_data.type == "webhook" and not config_data.url:
+        raise HTTPException(status_code=400, detail="URL é obrigatória para webhook")
+    if config_data.type == "pixel" and not config_data.pixel_id:
+        raise HTTPException(status_code=400, detail="Pixel ID é obrigatório para pixel")
+    if config_data.type == "api" and not config_data.access_token and not config_data.api_key:
+        raise HTTPException(status_code=400, detail="Access Token ou API Key é obrigatório para API")
+    
+    config = TrackingConfig(**config_data.model_dump())
+    db.add(config)
+    db.commit()
+    db.refresh(config)
+    return config
+
+
+@router.put("/tracking-configs/{config_id}", response_model=TrackingConfigResponse)
+async def update_tracking_config(
+    config_id: int,
+    config_data: TrackingConfigUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Atualizar configuração de tracking"""
+    config = db.query(TrackingConfig).filter(TrackingConfig.id == config_id).first()
+    if not config:
+        raise HTTPException(status_code=404, detail="Configuração não encontrada")
+    
+    update_data = config_data.model_dump(exclude_unset=True)
+    
+    # Validar tipo se fornecido
+    if "type" in update_data and update_data["type"] not in ["webhook", "pixel", "api"]:
+        raise HTTPException(status_code=400, detail="Tipo deve ser: webhook, pixel ou api")
+    
+    # Validar campos obrigatórios por tipo
+    final_type = update_data.get("type", config.type)
+    if final_type == "webhook" and not (update_data.get("url") or config.url):
+        raise HTTPException(status_code=400, detail="URL é obrigatória para webhook")
+    if final_type == "pixel" and not (update_data.get("pixel_id") or config.pixel_id):
+        raise HTTPException(status_code=400, detail="Pixel ID é obrigatório para pixel")
+    if final_type == "api" and not (update_data.get("access_token") or config.access_token or update_data.get("api_key") or config.api_key):
+        raise HTTPException(status_code=400, detail="Access Token ou API Key é obrigatório para API")
+    
+    for field, value in update_data.items():
+        setattr(config, field, value)
+    
+    db.commit()
+    db.refresh(config)
+    return config
+
+
+@router.delete("/tracking-configs/{config_id}")
+async def delete_tracking_config(
+    config_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Deletar configuração de tracking"""
+    config = db.query(TrackingConfig).filter(TrackingConfig.id == config_id).first()
+    if not config:
+        raise HTTPException(status_code=404, detail="Configuração não encontrada")
+    
+    db.delete(config)
+    db.commit()
+    return {"success": True, "message": "Configuração deletada com sucesso"}
