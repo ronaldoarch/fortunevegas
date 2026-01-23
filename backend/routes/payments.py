@@ -87,12 +87,19 @@ async def create_pix_deposit(
     webhook_url = os.getenv("WEBHOOK_BASE_URL", "https://api.agenciamidas.com")
     url_callback = f"{webhook_url}/api/webhooks/suitpay/pix-cashin"
     
+    # Validar CPF antes de enviar
+    if not deposit_data.payer_tax_id or len(deposit_data.payer_tax_id.replace('.', '').replace('-', '').replace(' ', '')) < 11:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="CPF/CNPJ inválido"
+        )
+    
     # Gerar código PIX
     pix_response = await suitpay.generate_pix_payment(
         value=deposit_data.amount,
         payer_name=deposit_data.payer_name,
         payer_tax_id=deposit_data.payer_tax_id,
-        payer_email=user.email,
+        payer_email=user.email or "",
         request_number=request_number,
         url_callback=url_callback,
         payer_phone=user.phone
@@ -101,7 +108,7 @@ async def create_pix_deposit(
     if not pix_response:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Erro ao gerar código PIX no gateway"
+            detail="Erro ao gerar código PIX no gateway. Verifique as credenciais e tente novamente."
         )
     
     # Criar registro de depósito

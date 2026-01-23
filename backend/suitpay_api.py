@@ -36,14 +36,27 @@ class SuitPayAPI:
                     headers=self.headers,
                     json=payload
                 )
+                
+                # Log detalhado para debug
+                print(f"SuitPay Request: {endpoint}")
+                print(f"SuitPay Payload: {json.dumps(payload, indent=2)}")
+                print(f"SuitPay Response Status: {response.status_code}")
+                print(f"SuitPay Response: {response.text}")
+                
                 response.raise_for_status()
                 return response.json()
         except httpx.HTTPStatusError as e:
-            print(f"Erro HTTP SuitPay {endpoint}: {e.response.status_code} - {e.response.text}")
-            return None
+            error_detail = e.response.text if e.response else "Sem resposta"
+            print(f"Erro HTTP SuitPay {endpoint}: {e.response.status_code} - {error_detail}")
+            # Retornar dict com erro para melhor tratamento
+            try:
+                error_json = e.response.json() if e.response else {}
+                return {"error": True, "status_code": e.response.status_code, "detail": error_json.get("message") or error_detail}
+            except:
+                return {"error": True, "status_code": e.response.status_code, "detail": error_detail}
         except Exception as e:
             print(f"Erro ao chamar SuitPay {endpoint}: {str(e)}")
-            return None
+            return {"error": True, "detail": str(e)}
     
     async def generate_pix_payment(
         self,
@@ -63,7 +76,7 @@ class SuitPayAPI:
         Args:
             value: Valor do pagamento
             payer_name: Nome do pagador
-            payer_tax_id: CPF/CNPJ do pagador
+            payer_tax_id: CPF/CNPJ do pagador (será limpo automaticamente)
             payer_email: Email do pagador
             request_number: Número único da requisição (para controle)
             url_callback: URL do webhook (opcional)
@@ -74,6 +87,15 @@ class SuitPayAPI:
             Dict com dados do PIX ou None em caso de erro
         """
         from datetime import datetime, timedelta
+        import re
+        
+        # Limpar CPF/CNPJ (remover pontos, traços e espaços)
+        payer_tax_id_clean = re.sub(r'[^0-9]', '', payer_tax_id) if payer_tax_id else ""
+        
+        # Limpar telefone se fornecido (remover parênteses, traços, espaços)
+        payer_phone_clean = None
+        if payer_phone:
+            payer_phone_clean = re.sub(r'[^0-9]', '', payer_phone)
         
         # Se não informada, usar data de hoje + 1 dia
         if not due_date:
@@ -87,20 +109,26 @@ class SuitPayAPI:
             "discountAmount": 0.0,
             "client": {
                 "name": payer_name,
-                "document": payer_tax_id,
+                "document": payer_tax_id_clean,
                 "email": payer_email
             }
         }
         
-        if payer_phone:
-            payload["client"]["phoneNumber"] = payer_phone
+        if payer_phone_clean:
+            payload["client"]["phoneNumber"] = payer_phone_clean
         
         if url_callback:
             payload["callbackUrl"] = url_callback
         
         # Endpoint correto conforme documentação SuitPay
         # POST /api/v1/gateway/request-qrcode
-        return await self._post("/api/v1/gateway/request-qrcode", payload)
+        result = await self._post("/api/v1/gateway/request-qrcode", payload)
+        
+        # Verificar se retornou erro
+        if result and result.get("error"):
+            return None
+        
+        return result
     
     async def transfer_pix(
         self,
