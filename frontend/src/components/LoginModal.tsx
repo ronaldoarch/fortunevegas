@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+
+const API_URL = import.meta.env.VITE_API_URL || 'https://api.fortunevegas.site';
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -15,6 +17,29 @@ export default function LoginModal({ isOpen, onClose, onSwitchToRegister }: Logi
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchLogo = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/public/media/logo`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.url) {
+            const url = data.url.startsWith('/api') 
+              ? `${API_URL}${data.url}`
+              : `${API_URL}/api/public/media${data.url}`;
+            setLogoUrl(url);
+          }
+        }
+      } catch (err) {
+        console.error('Erro ao buscar logo:', err);
+      }
+    };
+    if (isOpen) {
+      fetchLogo();
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -45,15 +70,30 @@ export default function LoginModal({ isOpen, onClose, onSwitchToRegister }: Logi
 
         {/* Image placeholder */}
         <div className="px-8 pb-6 flex justify-center">
-          <div className="w-32 h-32 bg-gradient-to-br from-[#d4af37]/20 to-[#ff6b35]/20 rounded-full flex items-center justify-center">
+          <div className="w-32 h-32 bg-gradient-to-br from-[#d4af37]/20 to-[#ff6b35]/20 rounded-full flex items-center justify-center overflow-hidden">
+            {logoUrl ? (
+              <img 
+                src={logoUrl} 
+                alt="Fortune Vegas Logo" 
+                className="w-24 h-24 object-contain p-4"
+              />
+            ) : null}
           </div>
         </div>
 
         {/* Logo */}
         <div className="px-8 pb-6 flex justify-center">
-          <div className="text-2xl font-black text-white">
-            FORTUNE <span className="text-[#d4af37]">VEGAS</span>
-          </div>
+          {logoUrl ? (
+            <img 
+              src={logoUrl} 
+              alt="Fortune Vegas" 
+              className="h-8 object-contain"
+            />
+          ) : (
+            <div className="text-2xl font-black text-white">
+              FORTUNE <span className="text-[#d4af37]">VEGAS</span>
+            </div>
+          )}
         </div>
 
         {/* Form */}
