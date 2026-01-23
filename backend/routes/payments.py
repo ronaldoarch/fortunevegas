@@ -123,12 +123,25 @@ async def create_pix_deposit(
     
     # Verificar se houve erro na resposta da SuitPay
     if not pix_response or pix_response.get("error"):
-        error_detail = pix_response.get("detail", "Erro desconhecido") if pix_response else "Sem resposta do gateway"
-        status_code = pix_response.get("status_code", 502) if pix_response else 502
+        # Extrair mensagem de erro específica da SuitPay
+        if pix_response and pix_response.get("error"):
+            error_detail = pix_response.get("detail", "Erro desconhecido")
+            status_code = pix_response.get("status_code", 502)
+            
+            # Mensagens específicas da SuitPay
+            if "INVALID_DOCUMENT" in str(error_detail) or "Documento" in str(error_detail):
+                error_detail = "CPF/CNPJ inválido. Verifique se o documento está correto e completo."
+            elif "INVALID_CLIENT" in str(error_detail):
+                error_detail = "Credenciais inválidas. Verifique as configurações do gateway."
+            elif "UNAUTHORIZED" in str(error_detail):
+                error_detail = "Não autorizado. Verifique as credenciais do gateway."
+        else:
+            error_detail = "Sem resposta do gateway"
+            status_code = 502
         
         raise HTTPException(
             status_code=status_code,
-            detail=f"Erro ao gerar código PIX no gateway: {error_detail}"
+            detail=error_detail
         )
     
     # Criar registro de depósito

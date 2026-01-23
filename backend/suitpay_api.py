@@ -51,7 +51,14 @@ class SuitPayAPI:
             # Retornar dict com erro para melhor tratamento
             try:
                 error_json = e.response.json() if e.response else {}
-                return {"error": True, "status_code": e.response.status_code, "detail": error_json.get("message") or error_detail}
+                # Extrair mensagem específica da SuitPay
+                suitpay_message = error_json.get("message") or error_json.get("response") or error_detail
+                return {
+                    "error": True, 
+                    "status_code": e.response.status_code, 
+                    "detail": suitpay_message,
+                    "suitpay_response": error_json
+                }
             except:
                 return {"error": True, "status_code": e.response.status_code, "detail": error_detail}
         except Exception as e:
@@ -126,7 +133,8 @@ class SuitPayAPI:
         
         # Verificar se retornou erro
         if result and result.get("error"):
-            return None
+            # Retornar o dict de erro completo para tratamento no endpoint
+            return result
         
         return result
     
