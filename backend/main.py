@@ -23,7 +23,11 @@ if not cors_origins:
         "http://127.0.0.1:5173",
         "http://127.0.0.1:5174",
         "http://127.0.0.1:3000",
-        # Permite qualquer origem do domínio agenciamidas.com em produção
+        # Domínios de produção
+        "https://fortunevegas.site",
+        "http://fortunevegas.site",
+        "https://www.fortunevegas.site",
+        "http://www.fortunevegas.site",
         "https://*.agenciamidas.com",
         "http://*.agenciamidas.com",
     ]
@@ -31,7 +35,7 @@ if not cors_origins:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
-    allow_origin_regex=r"https?://.*\.agenciamidas\.com",
+    allow_origin_regex=r"https?://(.*\.)?(fortunevegas\.site|agenciamidas\.com)",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
