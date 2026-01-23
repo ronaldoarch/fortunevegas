@@ -74,6 +74,29 @@ async def create_pix_deposit(
     if deposit_data.amount <= 0:
         raise HTTPException(status_code=400, detail="Valor deve ser maior que zero")
     
+    if deposit_data.amount < 10:
+        raise HTTPException(status_code=400, detail="Valor mínimo de depósito é R$ 10,00")
+    
+    # Validar dados do usuário
+    if not user.email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email do usuário não cadastrado. Atualize seu perfil."
+        )
+    
+    if not deposit_data.payer_name or len(deposit_data.payer_name.strip()) < 3:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nome do pagador inválido"
+        )
+    
+    # Validar CPF antes de enviar
+    if not deposit_data.payer_tax_id or len(deposit_data.payer_tax_id.replace('.', '').replace('-', '').replace(' ', '')) < 11:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="CPF/CNPJ inválido"
+        )
+    
     # Buscar gateway PIX ativo
     gateway = get_active_pix_gateway(db)
     
