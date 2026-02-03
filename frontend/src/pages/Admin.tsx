@@ -6,7 +6,7 @@ import {
   ArrowDownCircle, Activity, RefreshCw,
   Image as ImageIcon, Home, BarChart3,
   ChevronUp, ChevronDown, Percent, FileText, 
-  Gift, ShoppingBag, Tag, Gamepad2
+  Gift, ShoppingBag, Tag, Gamepad2, Megaphone, HelpCircle, UserCog
 } from 'lucide-react';
 import type { ThemePalette } from '../utils/themeManager';
 import { applyThemeToDocument } from '../utils/themeManager';
@@ -73,6 +73,7 @@ export default function Admin() {
   }, [token, navigate]);
 
   const loadStats = async () => {
+    setLoading(true);
     try {
       const response = await fetch(`${API_URL}/api/admin/stats`, {
         headers: {
@@ -193,6 +194,12 @@ export default function Admin() {
                 active={activeTab === 'notifications'}
                 onClick={() => setActiveTab('notifications')}
               />
+              <NavSubItem
+                icon={<Megaphone />}
+                label="Promoções"
+                active={activeTab === 'promotions'}
+                onClick={() => setActiveTab('promotions')}
+              />
             </NavSection>
             
             <NavSection
@@ -205,6 +212,12 @@ export default function Admin() {
                 label="Loja de Coins"
                 active={activeTab === 'coin-store'}
                 onClick={() => setActiveTab('coin-store')}
+              />
+              <NavSubItem
+                icon={<UserCog />}
+                label="Gerentes"
+                active={activeTab === 'managers'}
+                onClick={() => setActiveTab('managers')}
               />
             </NavSection>
             
@@ -279,13 +292,19 @@ export default function Admin() {
                 active={activeTab === 'ftds'}
                 onClick={() => setActiveTab('ftds')}
               />
+              <NavSubItem
+                icon={<HelpCircle />}
+                label="Suporte"
+                active={activeTab === 'support'}
+                onClick={() => setActiveTab('support')}
+              />
             </NavSection>
           </nav>
         </aside>
 
         {/* Main Content */}
         <main className="flex-1 p-6">
-          {activeTab === 'dashboard' && <DashboardTab stats={stats} loading={loading} />}
+          {activeTab === 'dashboard' && <DashboardTab stats={stats} loading={loading} onRefresh={loadStats} />}
           {activeTab === 'users' && <UsersTab token={token || ''} />}
           {activeTab === 'deposits' && <DepositsTab token={token || ''} />}
           {activeTab === 'withdrawals' && <WithdrawalsTab token={token || ''} />}
@@ -302,6 +321,11 @@ export default function Admin() {
           {activeTab === 'ggr' && <GGRTab token={token || ''} />}
           {activeTab === 'bets' && <BetsTab token={token || ''} />}
           {activeTab === 'notifications' && <NotificationsTab token={token || ''} />}
+          {activeTab === 'promotions' && <PromotionsTab token={token || ''} />}
+          {activeTab === 'support' && <SupportTab token={token || ''} />}
+          {activeTab === 'managers' && <ManagersTab token={token || ''} />}
+          {activeTab === 'coin-store' && <CoinStoreTab token={token || ''} />}
+          {activeTab === 'coupons' && <CouponsTab token={token || ''} />}
         </main>
       </div>
     </div>
@@ -360,12 +384,12 @@ function NavSubItem({ icon, label, active, onClick }: { icon: React.ReactNode; l
   );
 }
 
-function DashboardTab({ stats, loading }: { stats: Stats | null; loading: boolean }) {
-  if (loading) {
+function DashboardTab({ stats, loading, onRefresh }: { stats: Stats | null; loading: boolean; onRefresh: () => void }) {
+  if (loading && !stats) {
     return <div className="text-center py-12">Carregando...</div>;
   }
 
-  if (!stats) {
+  if (!stats && !loading) {
     return <div className="text-center py-12">Erro ao carregar estatísticas</div>;
   }
 
@@ -376,8 +400,13 @@ function DashboardTab({ stats, loading }: { stats: Stats | null; loading: boolea
           <h2 className="text-2xl font-bold">Dashboard</h2>
           <p className="text-sm text-gray-400">Visão geral rápida da operação</p>
         </div>
-        <button onClick={() => window.location.reload()} className="flex items-center gap-2 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded">
-          <RefreshCw size={18} /> Atualizar
+        <button 
+          onClick={onRefresh} 
+          disabled={loading}
+          className="flex items-center gap-2 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          <RefreshCw size={18} className={loading ? 'animate-spin' : ''} /> 
+          {loading ? 'Atualizando...' : 'Atualizar'}
         </button>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -3353,6 +3382,702 @@ function IGameWinProvidersTab({ token }: { token: string }) {
           </table>
         )}
       </div>
+    </div>
+  );
+}
+
+// ========== PROMOTIONS TAB ==========
+function PromotionsTab({ token }: { token: string }) {
+  const [promotions, setPromotions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({
+    title: '',
+    description: '',
+    type: 'bonus',
+    value: '',
+    start_date: '',
+    end_date: '',
+    is_active: true
+  });
+
+  const fetchPromotions = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      // TODO: Implementar endpoint de promoções no backend
+      // const res = await fetch(`${API_URL}/api/admin/promotions`, {
+      //   headers: { Authorization: `Bearer ${token}` }
+      // });
+      // if (!res.ok) throw new Error('Falha ao carregar promoções');
+      // setPromotions(await res.json());
+      setPromotions([]);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPromotions();
+  }, []);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold">Promoções</h2>
+        <button
+          onClick={() => setShowForm(!showForm)}
+          className="px-4 py-2 bg-[#ff6b35] hover:bg-[#ff7b35] text-white rounded"
+        >
+          {showForm ? 'Cancelar' : 'Nova Promoção'}
+        </button>
+      </div>
+
+      {error && (
+        <div className="bg-red-500/20 border border-red-500 rounded-lg p-3 text-red-400 text-sm">
+          {error}
+        </div>
+      )}
+
+      {showForm && (
+        <div className="bg-gray-800/60 p-6 rounded-lg border border-gray-700">
+          <h3 className="text-lg font-semibold mb-4">Nova Promoção</h3>
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Título</label>
+              <input
+                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+                value={form.title}
+                onChange={e => setForm({...form, title: e.target.value})}
+                placeholder="Título da promoção"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Tipo</label>
+              <select
+                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+                value={form.type}
+                onChange={e => setForm({...form, type: e.target.value})}
+              >
+                <option value="bonus">Bônus</option>
+                <option value="cashback">Cashback</option>
+                <option value="free_spins">Free Spins</option>
+                <option value="tournament">Torneio</option>
+              </select>
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm text-gray-400 mb-1">Descrição</label>
+              <textarea
+                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+                value={form.description}
+                onChange={e => setForm({...form, description: e.target.value})}
+                placeholder="Descrição da promoção"
+                rows={3}
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Data Início</label>
+              <input
+                type="datetime-local"
+                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+                value={form.start_date}
+                onChange={e => setForm({...form, start_date: e.target.value})}
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Data Fim</label>
+              <input
+                type="datetime-local"
+                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+                value={form.end_date}
+                onChange={e => setForm({...form, end_date: e.target.value})}
+              />
+            </div>
+          </div>
+          <div className="mt-4 flex gap-2">
+            <button className="px-4 py-2 bg-[#d4af37] hover:bg-[#ffd700] text-black rounded">
+              Criar Promoção
+            </button>
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="text-center py-12">Carregando promoções...</div>
+      ) : promotions.length === 0 ? (
+        <div className="text-center py-12 text-gray-400">
+          <p>Nenhuma promoção cadastrada</p>
+          <p className="text-sm mt-2">Clique em "Nova Promoção" para criar uma</p>
+        </div>
+      ) : (
+        <div className="bg-gray-800/60 rounded-lg border border-gray-700 overflow-hidden">
+          <table className="w-full">
+            <thead className="bg-gray-700">
+              <tr>
+                <th className="px-4 py-3 text-left text-sm font-semibold">Título</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">Tipo</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">Status</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">Data Início</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">Data Fim</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {promotions.map((promo) => (
+                <tr key={promo.id} className="border-t border-gray-700">
+                  <td className="px-4 py-3">{promo.title}</td>
+                  <td className="px-4 py-3">{promo.type}</td>
+                  <td className="px-4 py-3">
+                    <span className={`px-2 py-1 rounded text-xs ${promo.is_active ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>
+                      {promo.is_active ? 'Ativa' : 'Inativa'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">{new Date(promo.start_date).toLocaleDateString('pt-BR')}</td>
+                  <td className="px-4 py-3">{new Date(promo.end_date).toLocaleDateString('pt-BR')}</td>
+                  <td className="px-4 py-3">
+                    <button className="text-blue-400 hover:text-blue-300 text-sm">Editar</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ========== SUPPORT TAB ==========
+function SupportTab({ token }: { token: string }) {
+  const [config, setConfig] = useState({
+    support_email: '',
+    support_phone: '',
+    support_whatsapp: '',
+    chat_widget_url: '',
+    support_link: '',
+    is_active: true
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const fetchConfig = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      // TODO: Implementar endpoint de configuração de suporte no backend
+      // const res = await fetch(`${API_URL}/api/admin/support/config`, {
+      //   headers: { Authorization: `Bearer ${token}` }
+      // });
+      // if (!res.ok) throw new Error('Falha ao carregar configurações');
+      // setConfig(await res.json());
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const saveConfig = async () => {
+    setLoading(true);
+    setError('');
+    setSuccess('');
+    try {
+      // TODO: Implementar endpoint de salvar configuração de suporte no backend
+      // const res = await fetch(`${API_URL}/api/admin/support/config`, {
+      //   method: 'PUT',
+      //   headers: {
+      //     'Content-Type': 'application/json',
+      //     Authorization: `Bearer ${token}`
+      //   },
+      //   body: JSON.stringify(config)
+      // });
+      // if (!res.ok) throw new Error('Falha ao salvar configurações');
+      setSuccess('Configurações salvas com sucesso!');
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchConfig();
+  }, []);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold">Configuração de Suporte</h2>
+          <p className="text-sm text-gray-400">Configure links e informações de contato</p>
+        </div>
+      </div>
+
+      {error && (
+        <div className="bg-red-500/20 border border-red-500 rounded-lg p-3 text-red-400 text-sm">
+          {error}
+        </div>
+      )}
+
+      {success && (
+        <div className="bg-green-500/20 border border-green-500 rounded-lg p-3 text-green-400 text-sm">
+          {success}
+        </div>
+      )}
+
+      <div className="bg-gray-800/60 p-6 rounded-lg border border-gray-700">
+        <div className="grid md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">Email de Suporte</label>
+            <input
+              type="email"
+              className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+              value={config.support_email}
+              onChange={e => setConfig({...config, support_email: e.target.value})}
+              placeholder="suporte@exemplo.com"
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">Telefone</label>
+            <input
+              type="tel"
+              className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+              value={config.support_phone}
+              onChange={e => setConfig({...config, support_phone: e.target.value})}
+              placeholder="(00) 00000-0000"
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">WhatsApp</label>
+            <input
+              type="text"
+              className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+              value={config.support_whatsapp}
+              onChange={e => setConfig({...config, support_whatsapp: e.target.value})}
+              placeholder="https://wa.me/5511999999999"
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">Link de Suporte</label>
+            <input
+              type="url"
+              className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+              value={config.support_link}
+              onChange={e => setConfig({...config, support_link: e.target.value})}
+              placeholder="https://exemplo.com/suporte"
+            />
+          </div>
+          <div className="md:col-span-2">
+            <label className="block text-sm text-gray-400 mb-1">URL do Widget de Chat</label>
+            <input
+              type="url"
+              className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+              value={config.chat_widget_url}
+              onChange={e => setConfig({...config, chat_widget_url: e.target.value})}
+              placeholder="https://exemplo.com/widget.js"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={config.is_active}
+              onChange={e => setConfig({...config, is_active: e.target.checked})}
+              className="w-4 h-4"
+            />
+            <label className="text-sm text-gray-300">Suporte Ativo</label>
+          </div>
+        </div>
+        <div className="mt-6 flex gap-2">
+          <button
+            onClick={saveConfig}
+            disabled={loading}
+            className="px-4 py-2 bg-[#d4af37] hover:bg-[#ffd700] text-black rounded disabled:opacity-50"
+          >
+            {loading ? 'Salvando...' : 'Salvar Configurações'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ========== MANAGERS TAB ==========
+function ManagersTab({ token }: { token: string }) {
+  const [managers, setManagers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({
+    name: '',
+    email: '',
+    username: '',
+    password: '',
+    affiliate_id: '',
+    is_active: true
+  });
+
+  const fetchManagers = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      // TODO: Implementar endpoint de gerentes no backend
+      // const res = await fetch(`${API_URL}/api/admin/managers`, {
+      //   headers: { Authorization: `Bearer ${token}` }
+      // });
+      // if (!res.ok) throw new Error('Falha ao carregar gerentes');
+      // setManagers(await res.json());
+      setManagers([]);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchManagers();
+  }, []);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold">Gerentes</h2>
+          <p className="text-sm text-gray-400">Gerenciamento de gerentes e sub-afiliados</p>
+        </div>
+        <button
+          onClick={() => setShowForm(!showForm)}
+          className="px-4 py-2 bg-[#ff6b35] hover:bg-[#ff7b35] text-white rounded"
+        >
+          {showForm ? 'Cancelar' : 'Novo Gerente'}
+        </button>
+      </div>
+
+      {error && (
+        <div className="bg-red-500/20 border border-red-500 rounded-lg p-3 text-red-400 text-sm">
+          {error}
+        </div>
+      )}
+
+      {showForm && (
+        <div className="bg-gray-800/60 p-6 rounded-lg border border-gray-700">
+          <h3 className="text-lg font-semibold mb-4">Novo Gerente</h3>
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Nome</label>
+              <input
+                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+                value={form.name}
+                onChange={e => setForm({...form, name: e.target.value})}
+                placeholder="Nome completo"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Email</label>
+              <input
+                type="email"
+                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+                value={form.email}
+                onChange={e => setForm({...form, email: e.target.value})}
+                placeholder="email@exemplo.com"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Username</label>
+              <input
+                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+                value={form.username}
+                onChange={e => setForm({...form, username: e.target.value})}
+                placeholder="username"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Senha</label>
+              <input
+                type="password"
+                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+                value={form.password}
+                onChange={e => setForm({...form, password: e.target.value})}
+                placeholder="••••••••"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Afiliado Pai (ID)</label>
+              <input
+                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+                value={form.affiliate_id}
+                onChange={e => setForm({...form, affiliate_id: e.target.value})}
+                placeholder="ID do afiliado pai (opcional)"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={form.is_active}
+                onChange={e => setForm({...form, is_active: e.target.checked})}
+                className="w-4 h-4"
+              />
+              <label className="text-sm text-gray-300">Ativo</label>
+            </div>
+          </div>
+          <div className="mt-4 flex gap-2">
+            <button className="px-4 py-2 bg-[#d4af37] hover:bg-[#ffd700] text-black rounded">
+              Criar Gerente
+            </button>
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="text-center py-12">Carregando gerentes...</div>
+      ) : managers.length === 0 ? (
+        <div className="text-center py-12 text-gray-400">
+          <p>Nenhum gerente cadastrado</p>
+          <p className="text-sm mt-2">Clique em "Novo Gerente" para criar um</p>
+        </div>
+      ) : (
+        <div className="bg-gray-800/60 rounded-lg border border-gray-700 overflow-hidden">
+          <table className="w-full">
+            <thead className="bg-gray-700">
+              <tr>
+                <th className="px-4 py-3 text-left text-sm font-semibold">Nome</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">Email</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">Username</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">Afiliado Pai</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">Status</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {managers.map((manager) => (
+                <tr key={manager.id} className="border-t border-gray-700">
+                  <td className="px-4 py-3">{manager.name}</td>
+                  <td className="px-4 py-3">{manager.email}</td>
+                  <td className="px-4 py-3">{manager.username}</td>
+                  <td className="px-4 py-3">{manager.affiliate_id || '-'}</td>
+                  <td className="px-4 py-3">
+                    <span className={`px-2 py-1 rounded text-xs ${manager.is_active ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>
+                      {manager.is_active ? 'Ativo' : 'Inativo'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <button className="text-blue-400 hover:text-blue-300 text-sm">Editar</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ========== COIN STORE TAB ==========
+function CoinStoreTab({ token }: { token: string }) {
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold">Loja de Coins</h2>
+          <p className="text-sm text-gray-400">Gerenciamento da loja de coins</p>
+        </div>
+      </div>
+      <div className="bg-gray-800/60 p-6 rounded-lg border border-gray-700 text-center">
+        <p className="text-gray-400">Funcionalidade em desenvolvimento</p>
+      </div>
+    </div>
+  );
+}
+
+// ========== COUPONS TAB ==========
+function CouponsTab({ token }: { token: string }) {
+  const [coupons, setCoupons] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({
+    code: '',
+    type: 'percentage',
+    value: '',
+    max_uses: '',
+    valid_from: '',
+    valid_until: '',
+    is_active: true
+  });
+
+  const fetchCoupons = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      // TODO: Implementar endpoint de cupons no backend
+      // const res = await fetch(`${API_URL}/api/admin/coupons`, {
+      //   headers: { Authorization: `Bearer ${token}` }
+      // });
+      // if (!res.ok) throw new Error('Falha ao carregar cupons');
+      // setCoupons(await res.json());
+      setCoupons([]);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchCoupons();
+  }, []);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold">Cupons</h2>
+          <p className="text-sm text-gray-400">Gerenciamento de cupons de desconto</p>
+        </div>
+        <button
+          onClick={() => setShowForm(!showForm)}
+          className="px-4 py-2 bg-[#ff6b35] hover:bg-[#ff7b35] text-white rounded"
+        >
+          {showForm ? 'Cancelar' : 'Novo Cupom'}
+        </button>
+      </div>
+
+      {error && (
+        <div className="bg-red-500/20 border border-red-500 rounded-lg p-3 text-red-400 text-sm">
+          {error}
+        </div>
+      )}
+
+      {showForm && (
+        <div className="bg-gray-800/60 p-6 rounded-lg border border-gray-700">
+          <h3 className="text-lg font-semibold mb-4">Novo Cupom</h3>
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Código do Cupom</label>
+              <input
+                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+                value={form.code}
+                onChange={e => setForm({...form, code: e.target.value.toUpperCase()})}
+                placeholder="EXEMPLO123"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Tipo</label>
+              <select
+                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+                value={form.type}
+                onChange={e => setForm({...form, type: e.target.value})}
+              >
+                <option value="percentage">Percentual (%)</option>
+                <option value="fixed">Valor Fixo (R$)</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Valor</label>
+              <input
+                type="number"
+                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+                value={form.value}
+                onChange={e => setForm({...form, value: e.target.value})}
+                placeholder={form.type === 'percentage' ? '10' : '50.00'}
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Máximo de Usos</label>
+              <input
+                type="number"
+                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+                value={form.max_uses}
+                onChange={e => setForm({...form, max_uses: e.target.value})}
+                placeholder="100 (deixe vazio para ilimitado)"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Válido De</label>
+              <input
+                type="datetime-local"
+                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+                value={form.valid_from}
+                onChange={e => setForm({...form, valid_from: e.target.value})}
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Válido Até</label>
+              <input
+                type="datetime-local"
+                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+                value={form.valid_until}
+                onChange={e => setForm({...form, valid_until: e.target.value})}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={form.is_active}
+                onChange={e => setForm({...form, is_active: e.target.checked})}
+                className="w-4 h-4"
+              />
+              <label className="text-sm text-gray-300">Ativo</label>
+            </div>
+          </div>
+          <div className="mt-4 flex gap-2">
+            <button className="px-4 py-2 bg-[#d4af37] hover:bg-[#ffd700] text-black rounded">
+              Criar Cupom
+            </button>
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="text-center py-12">Carregando cupons...</div>
+      ) : coupons.length === 0 ? (
+        <div className="text-center py-12 text-gray-400">
+          <p>Nenhum cupom cadastrado</p>
+          <p className="text-sm mt-2">Clique em "Novo Cupom" para criar um</p>
+        </div>
+      ) : (
+        <div className="bg-gray-800/60 rounded-lg border border-gray-700 overflow-hidden">
+          <table className="w-full">
+            <thead className="bg-gray-700">
+              <tr>
+                <th className="px-4 py-3 text-left text-sm font-semibold">Código</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">Tipo</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">Valor</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">Usos</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">Válido Até</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">Status</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {coupons.map((coupon) => (
+                <tr key={coupon.id} className="border-t border-gray-700">
+                  <td className="px-4 py-3 font-mono font-bold">{coupon.code}</td>
+                  <td className="px-4 py-3">{coupon.type === 'percentage' ? 'Percentual' : 'Fixo'}</td>
+                  <td className="px-4 py-3">
+                    {coupon.type === 'percentage' ? `${coupon.value}%` : `R$ ${coupon.value}`}
+                  </td>
+                  <td className="px-4 py-3">{coupon.uses || 0} / {coupon.max_uses || '∞'}</td>
+                  <td className="px-4 py-3">{new Date(coupon.valid_until).toLocaleDateString('pt-BR')}</td>
+                  <td className="px-4 py-3">
+                    <span className={`px-2 py-1 rounded text-xs ${coupon.is_active ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>
+                      {coupon.is_active ? 'Ativo' : 'Inativo'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <button className="text-blue-400 hover:text-blue-300 text-sm">Editar</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

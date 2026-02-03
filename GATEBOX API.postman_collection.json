@@ -1,0 +1,405 @@
+{
+  "info": {
+    "_postman_id": "6477aa29-58b6-4678-b203-be49832d1164",
+    "name": "GATEBOX API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "31465016"
+  },
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Sign-in",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const response = pm.response.json();",
+                  "",
+                  "pm.collectionVariables.set(\"token\", response.access_token)"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"93892492000158\",\n  \"password\": \"@Homolog1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{API_URL}}/v1/customers/auth/sign-in",
+              "host": [
+                "{{API_URL}}"
+              ],
+              "path": [
+                "v1",
+                "customers",
+                "auth",
+                "sign-in"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Cash-In",
+      "item": [
+        {
+          "name": "Cash-In",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"externalId\": \"<id de conciliacao>\",\n  \"amount\": 1,\n  \"document\": \"<cpf/cnpj do pagador>\",\n  \"name\": \"<nome completo do pagador>\",\n  \"expire\": 3600\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{API_URL}}/v1/customers/pix/create-immediate-qrcode",
+              "host": [
+                "{{API_URL}}"
+              ],
+              "path": [
+                "v1",
+                "customers",
+                "pix",
+                "create-immediate-qrcode"
+              ]
+            }
+          },
+          "response": [
+            {
+              "name": "Cash-In com todos os dados do pagador",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"externalId\": \"<id de conciliacao>\",\n  \"amount\": 0.1, // valor desejado para depositar\n  \"document\": \"<cpf/cnpj do pagador>\",\n  \"name\": \"<nome completo do pagador>\",\n  \"email\": \"<e-mail do pagador>\",\n  \"phone\": \"<telefone do pagador, ex: +5514987654321>\",\n  \"identification\": \"<descricao a ser exibida no momento do pagamento>\",\n  \"expire\": 3600,\n  \"description\": \"<descricao da transacao>\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{API_URL}}/v1/customers/pix/create-immediate-qrcode",
+                  "host": [
+                    "{{API_URL}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "customers",
+                    "pix",
+                    "create-immediate-qrcode"
+                  ]
+                }
+              },
+              "_postman_previewlanguage": null,
+              "header": null,
+              "cookie": [],
+              "body": null
+            },
+            {
+              "name": "Cash-In com pagador diferente",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"externalId\": \"<id de conciliacao>\",\n  \"amount\": 0.1, // valor desejado para depositar\n  \"identification\": \"<descricao a ser exibida no momento do pagamento>\",\n  \"expire\": 3600, //tempo de expiração do pix em segundos\n  \"description\": \"<descricao da transacao>\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{API_URL}}/v1/customers/pix/create-immediate-qrcode",
+                  "host": [
+                    "{{API_URL}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "customers",
+                    "pix",
+                    "create-immediate-qrcode"
+                  ]
+                }
+              },
+              "_postman_previewlanguage": null,
+              "header": null,
+              "cookie": [],
+              "body": null
+            }
+          ]
+        },
+        {
+          "name": "Consulta Status Cash-In",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://api.gatebox.com.br/v1/customers/pix/status?transactionId&externalId=&endToEnd",
+              "protocol": "https",
+              "host": [
+                "api",
+                "gatebox",
+                "com",
+                "br"
+              ],
+              "path": [
+                "v1",
+                "customers",
+                "pix",
+                "status"
+              ],
+              "query": [
+                {
+                  "key": "transactionId",
+                  "value": null
+                },
+                {
+                  "key": "externalId",
+                  "value": ""
+                },
+                {
+                  "key": "endToEnd",
+                  "value": null
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Cash-Out",
+      "item": [
+        {
+          "name": "Cash-Out",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"externalId\": \"<id de conciliacao>\",\n  \"key\": \"<chave pix do recebedor>\",\n  \"name\": \"<nome completo do recebedor>\",\n  \"description\": \"<descricao da transacao>\", //opcional\n  \"amount\": 0.1, //valor do saque\n  \"documentNumber\": \"<cpf/cnpj do recebedor>\" //obrigatorio apenas se validacao de chave pix estiver ativa\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{API_URL}}/v1/customers/pix/withdraw",
+              "host": [
+                "{{API_URL}}"
+              ],
+              "path": [
+                "v1",
+                "customers",
+                "pix",
+                "withdraw"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Consulta Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://api.gatebox.com.br/v1/customers/pix/status?endToEnd=E60701190202506170515DY5W414HZ69",
+              "protocol": "https",
+              "host": [
+                "api",
+                "gatebox",
+                "com",
+                "br"
+              ],
+              "path": [
+                "v1",
+                "customers",
+                "pix",
+                "status"
+              ],
+              "query": [
+                {
+                  "key": "endToEnd",
+                  "value": "E60701190202506170515DY5W414HZ69"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Saldo",
+      "item": [
+        {
+          "name": "Consultar saldo da conta",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "https://api.gatebox.com.br/v1/customers/account/balance",
+              "protocol": "https",
+              "host": [
+                "api",
+                "gatebox",
+                "com",
+                "br"
+              ],
+              "path": [
+                "v1",
+                "customers",
+                "account",
+                "balance"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Validar chave Pix",
+      "protocolProfileBehavior": {
+        "disableBodyPruning": true
+      },
+      "request": {
+        "method": "GET",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{API_URL}}/v1/customers/pix/pix-search?dict=00000000000",
+          "host": [
+            "{{API_URL}}"
+          ],
+          "path": [
+            "v1",
+            "customers",
+            "pix",
+            "pix-search"
+          ],
+          "query": [
+            {
+              "key": "dict",
+              "value": "00000000000",
+              "description": "Chave Pix a ser verificada (sem pontuação)"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Listar MEDs",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"dateFrom\": \"2025-09-01\",\n  \"dateTo\": \"2025-09-30\",\n  \"limitPerPage\": 10,\n  \"page\": 1\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://api.gatebox.com.br/v1/customers/med/list-med",
+          "protocol": "https",
+          "host": [
+            "api",
+            "gatebox",
+            "com",
+            "br"
+          ],
+          "path": [
+            "v1",
+            "customers",
+            "med",
+            "list-med"
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "API_URL",
+      "value": ""
+    }
+  ]
+}

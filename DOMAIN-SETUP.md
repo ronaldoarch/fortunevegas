@@ -184,6 +184,44 @@ curl https://api.seudominio.com/api/health
 
 ---
 
+## ⚠️ IMPORTANTE: Desativar Hosting na Hostinger
+
+Se você está usando Coolify, **NÃO precisa** do serviço de hosting da Hostinger. Ter ambos ativos pode causar conflitos.
+
+### Como Desativar Hosting na Hostinger:
+
+1. **Acesse o painel da Hostinger:**
+   - Faça login em [hpanel.hostinger.com](https://hpanel.hostinger.com)
+   - Vá em **Sites** → `fortunevegas.site`
+
+2. **Desative o serviço de hosting:**
+   - Procure pelo card **"Hospedagem" ou "Hosting"**
+   - Clique nele
+   - Procure opções como:
+     - **"Desativar"**
+     - **"Remover site"**
+     - **"Cancelar hosting"**
+     - Ou entre em contato com suporte para desativar
+
+3. **Alternativa - Desconectar domínio:**
+   - Se não conseguir desativar, clique em **"Conectar domínio"**
+   - E depois desconecte/remova o domínio do site
+
+4. **Limpar cache da Hostinger:**
+   - No painel da Hostinger, clique em **"Limpar cache"**
+   - Isso remove qualquer cache que possa estar interferindo
+
+5. **Aguardar propagação:**
+   - Após desativar, aguarde 10-15 minutos
+   - O DNS deve apontar diretamente para o Coolify
+
+**Por que isso é importante?**
+- O hosting da Hostinger pode interceptar requisições antes de chegar ao Coolify
+- Isso impede que o certificado SSL do Coolify funcione corretamente
+- Pode causar conflitos de DNS e redirecionamentos
+
+---
+
 ## 🔧 Troubleshooting
 
 ### ❌ Erro: "DNS não resolve"
@@ -207,13 +245,57 @@ curl https://api.seudominio.com/api/health
 2. Faça redeploy do backend após alterar variável
 3. Verifique se o frontend está usando o domínio correto na variável `VITE_API_URL`
 
-### ❌ Certificado SSL não gera
+### ❌ Certificado SSL não gera ou mostra "Não seguro"
+
+**Sintomas:**
+- Site carrega mas mostra "Não seguro" no navegador
+- Aviso de "Sua conexão com esse site não é segura"
+- Certificado não é reconhecido pelo navegador
 
 **Soluções:**
-1. Aguarde propagação DNS completa
-2. Verifique se o domínio aponta para o IP correto
-3. No Coolify, tente regenerar o certificado manualmente
-4. Verifique logs do Coolify para erros
+
+1. **Verificar se o domínio está adicionado no Coolify:**
+   - No Coolify, abra sua aplicação **Frontend**
+   - Vá em **Domains** ou **Settings** → **Domains**
+   - Certifique-se de que `fortunevegas.site` está listado
+   - Se não estiver, adicione o domínio
+
+2. **Forçar geração do certificado SSL:**
+   - No Coolify, na aplicação **Frontend**
+   - Vá em **Domains** → clique no domínio `fortunevegas.site`
+   - Procure por opções como:
+     - **"Generate SSL Certificate"**
+     - **"Request Certificate"**
+     - **"Enable SSL"**
+     - Ou um botão de refresh/regenerar certificado
+   - Clique para forçar a geração
+
+3. **Verificar propagação DNS completa:**
+   ```bash
+   # Verificar se DNS está propagado globalmente
+   dig fortunevegas.site
+   # Deve retornar o IP do Coolify (147.93.147.33)
+   ```
+   - Use [https://dnschecker.org](https://dnschecker.org) para verificar propagação global
+   - O certificado SSL só será gerado quando o DNS estiver 100% propagado
+
+4. **Aguardar geração automática:**
+   - O Coolify usa Let's Encrypt que pode levar 5-15 minutos após DNS propagado
+   - Aguarde e verifique novamente
+
+5. **Verificar logs do Coolify:**
+   - No Coolify, vá em **Logs** da aplicação Frontend
+   - Procure por erros relacionados a SSL/Let's Encrypt
+   - Erros comuns: "DNS challenge failed", "Domain not reachable"
+
+6. **Verificar se há serviço de hosting ativo na Hostinger:**
+   - Se houver hosting ativo na Hostinger, ele pode interferir
+   - Desative o serviço de hosting na Hostinger (veja seção abaixo)
+
+7. **Limpar cache do navegador:**
+   - Limpe cache e cookies do navegador
+   - Tente em modo anônimo/privado
+   - Ou use outro navegador para testar
 
 ### ❌ Frontend não conecta com Backend
 
