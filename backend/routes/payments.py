@@ -289,7 +289,8 @@ async def create_pix_withdrawal(
     
     # Realizar transferência PIX
     # A Gatebox requer name (nome do recebedor) - usar nome do usuário se disponível
-    recipient_name = user.full_name or user.name or "Usuário"
+    # Usar username como fallback se não houver nome completo
+    recipient_name = user.username or user.email.split('@')[0] or "Usuário"
     
     transfer_response = await gatebox.withdraw_pix(
         external_id=external_id,
