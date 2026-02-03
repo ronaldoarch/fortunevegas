@@ -141,6 +141,7 @@ export default function Depositar() {
         if (!finalQrCodeBase64 && pixCode) {
           try {
             // Gerar QR Code em base64 a partir do código PIX
+            // QRCode.toDataURL() já retorna a string completa com prefixo data:image/png;base64,
             finalQrCodeBase64 = await QRCode.toDataURL(pixCode, {
               width: 300,
               margin: 2,
@@ -149,12 +150,15 @@ export default function Depositar() {
                 light: '#FFFFFF'
               }
             });
-            console.log('QR Code generated from PIX code');
+            console.log('QR Code generated from PIX code:', finalQrCodeBase64.substring(0, 50) + '...');
           } catch (err) {
             console.error('Error generating QR Code:', err);
             // Continuar mesmo sem QR Code - o código PIX ainda pode ser copiado
+            finalQrCodeBase64 = '';
           }
         }
+        
+        console.log('Final QR Code Base64:', finalQrCodeBase64 ? (finalQrCodeBase64.substring(0, 50) + '...') : 'EMPTY');
         
         setPixData({
           qr_code: pixCode,
@@ -282,9 +286,17 @@ export default function Depositar() {
             {pixData.qr_code_base64 && (
               <div className="bg-white p-4 rounded-lg mb-6 flex justify-center">
                 <img 
-                  src={`data:image/png;base64,${pixData.qr_code_base64}`} 
+                  src={
+                    pixData.qr_code_base64.startsWith('data:') 
+                      ? pixData.qr_code_base64 
+                      : `data:image/png;base64,${pixData.qr_code_base64}`
+                  }
                   alt="QR Code PIX" 
                   className="max-w-xs w-full"
+                  onError={(e) => {
+                    console.error('Error loading QR Code image:', e);
+                    console.log('QR Code Base64 value:', pixData.qr_code_base64.substring(0, 100));
+                  }}
                 />
               </div>
             )}
