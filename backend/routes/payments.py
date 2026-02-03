@@ -1,12 +1,12 @@
 """
-Rotas públicas para pagamentos (depósitos e saques) usando SuitPay
+Rotas públicas para pagamentos (depósitos e saques) usando Gatebox
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from typing import Optional
 from database import get_db
 from models import User, Deposit, Withdrawal, Gateway, TransactionStatus
-from suitpay_api import SuitPayAPI
+from gatebox_api import GateboxAPI
 from schemas import DepositResponse, WithdrawalResponse, DepositPixRequest
 from dependencies import get_current_user
 from datetime import datetime
@@ -34,21 +34,21 @@ def get_active_pix_gateway(db: Session) -> Gateway:
     return gateway
 
 
-def get_suitpay_client(gateway: Gateway) -> SuitPayAPI:
-    """Cria cliente SuitPay a partir das credenciais do gateway"""
+def get_gatebox_client(gateway: Gateway) -> GateboxAPI:
+    """Cria cliente Gatebox a partir das credenciais do gateway"""
     try:
         credentials = json.loads(gateway.credentials) if gateway.credentials else {}
-        client_id = credentials.get("client_id") or credentials.get("ci")
-        client_secret = credentials.get("client_secret") or credentials.get("cs")
-        sandbox = credentials.get("sandbox", True)
+        username = credentials.get("username")
+        password = credentials.get("password")
+        api_url = credentials.get("api_url", "https://api.gatebox.com.br")
         
-        if not client_id or not client_secret:
+        if not username or not password:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Credenciais do gateway não configuradas"
+                detail="Credenciais do gateway não configuradas (username e password são obrigatórios)"
             )
         
-        return SuitPayAPI(client_id, client_secret, sandbox=sandbox)
+        return GateboxAPI(username=username, password=password, api_url=api_url)
     except json.JSONDecodeError:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -63,7 +63,7 @@ async def create_pix_deposit(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Cria depósito via PIX usando SuitPay
+    Cria depósito via PIX usando Gatebox
     
     Args:
         deposit_data: Dados do depósito (amount, payer_name, payer_tax_id)
@@ -100,41 +100,37 @@ async def create_pix_deposit(
     # Buscar gateway PIX ativo
     gateway = get_active_pix_gateway(db)
     
-    # Criar cliente SuitPay
-    suitpay = get_suitpay_client(gateway)
+    # Criar cliente Gatebox
+    gatebox = get_gatebox_client(gateway)
     
-    # Gerar número único da requisição
-    request_number = f"DEP_{user.id}_{int(datetime.utcnow().timestamp())}"
-    
-    # URL do webhook (usar variável de ambiente ou construir)
-    webhook_url = os.getenv("WEBHOOK_BASE_URL", "https://api.agenciamidas.com")
-    url_callback = f"{webhook_url}/api/webhooks/suitpay/pix-cashin"
+    # Gerar external_id único para controle de duplicidade
+    external_id = f"DEP_{user.id}_{int(datetime.utcnow().timestamp())}"
     
     # Gerar código PIX
-    pix_response = await suitpay.generate_pix_payment(
-        value=deposit_data.amount,
-        payer_name=deposit_data.payer_name,
-        payer_tax_id=deposit_data.payer_tax_id,
-        payer_email=user.email or "",
-        request_number=request_number,
-        url_callback=url_callback,
-        payer_phone=user.phone
+    pix_response = await gatebox.create_immediate_qrcode(
+        external_id=external_id,
+        amount=deposit_data.amount,
+        document=deposit_data.payer_tax_id,
+        name=deposit_data.payer_name,
+        expire=3600,  # 1 hora de expiração
+        email=user.email,
+        phone=user.phone,
+        identification=f"Depósito - {deposit_data.payer_name}",
+        description=f"Depósito de R$ {deposit_data.amount:.2f}"
     )
     
-    # Verificar se houve erro na resposta da SuitPay
+    # Verificar se houve erro na resposta da Gatebox
     if not pix_response or pix_response.get("error"):
-        # Extrair mensagem de erro específica da SuitPay
+        # Extrair mensagem de erro específica da Gatebox
         if pix_response and pix_response.get("error"):
             error_detail = pix_response.get("detail", "Erro desconhecido")
             status_code = pix_response.get("status_code", 502)
             
-            # Mensagens específicas da SuitPay
-            if "INVALID_DOCUMENT" in str(error_detail) or "Documento" in str(error_detail):
-                error_detail = "CPF/CNPJ inválido. Verifique se o documento está correto e completo."
-            elif "INVALID_CLIENT" in str(error_detail):
-                error_detail = "Credenciais inválidas. Verifique as configurações do gateway."
-            elif "UNAUTHORIZED" in str(error_detail):
+            # Mensagens específicas da Gatebox
+            if "UNAUTHORIZED" in str(error_detail) or "401" in str(status_code):
                 error_detail = "Não autorizado. Verifique as credenciais do gateway."
+            elif "INVALID" in str(error_detail) or "400" in str(status_code):
+                error_detail = "Dados inválidos. Verifique os dados informados."
         else:
             error_detail = "Sem resposta do gateway"
             status_code = 502
@@ -145,19 +141,22 @@ async def create_pix_deposit(
         )
     
     # Criar registro de depósito
+    # A Gatebox retorna campos diferentes - ajustar conforme resposta real da API
     deposit = Deposit(
         user_id=user.id,
         gateway_id=gateway.id,
         amount=deposit_data.amount,
         status=TransactionStatus.PENDING,
         transaction_id=str(uuid.uuid4()),
-        external_id=pix_response.get("idTransaction") or request_number,
+        external_id=external_id,
         metadata_json=json.dumps({
-            "pix_code": pix_response.get("paymentCode"),
-            "pix_qr_code": pix_response.get("paymentCode"),  # paymentCode é o QR Code
-            "pix_qr_code_base64": pix_response.get("paymentCodeBase64"),
-            "request_number": request_number,
-            "suitpay_response": pix_response
+            "pix_code": pix_response.get("qrCode") or pix_response.get("pixCode") or pix_response.get("emv"),
+            "pix_qr_code": pix_response.get("qrCode") or pix_response.get("pixCode") or pix_response.get("emv"),
+            "pix_qr_code_base64": pix_response.get("qrCodeBase64") or pix_response.get("base64"),
+            "transaction_id": pix_response.get("transactionId") or pix_response.get("id"),
+            "end_to_end": pix_response.get("endToEnd"),
+            "external_id": external_id,
+            "gatebox_response": pix_response
         })
     )
     
@@ -178,12 +177,12 @@ async def create_pix_withdrawal(
     document_validation: Optional[str] = None
 ):
     """
-    Cria saque via PIX usando SuitPay
+    Cria saque via PIX usando Gatebox
     
     Args:
         amount: Valor do saque
-        pix_key: Chave PIX (CPF, CNPJ, telefone, email ou chave aleatória)
-        type_key: Tipo da chave PIX: "document", "phoneNumber", "email", "randomKey", "paymentCode"
+        pix_key: Chave PIX do recebedor
+        type_key: Tipo da chave PIX (não usado na Gatebox, mas mantido para compatibilidade)
         document_validation: CPF/CNPJ para validar se pertence à chave PIX (opcional)
     """
     # Usar usuário autenticado
@@ -196,35 +195,30 @@ async def create_pix_withdrawal(
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Valor deve ser maior que zero")
     
-    # Validar tipo de chave
-    valid_types = ["document", "phoneNumber", "email", "randomKey", "paymentCode"]
-    if type_key not in valid_types:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Tipo de chave inválido. Use: {', '.join(valid_types)}"
-        )
-    
     # Buscar gateway PIX ativo
     gateway = get_active_pix_gateway(db)
     
-    # Criar cliente SuitPay
-    suitpay = get_suitpay_client(gateway)
-    
-    # URL do webhook
-    webhook_url = os.getenv("WEBHOOK_BASE_URL", "https://api.agenciamidas.com")
-    url_callback = f"{webhook_url}/api/webhooks/suitpay/pix-cashout"
+    # Criar cliente Gatebox
+    gatebox = get_gatebox_client(gateway)
     
     # Gerar external_id único para controle de duplicidade
     external_id = f"WTH_{user.id}_{int(datetime.utcnow().timestamp())}"
     
+    # Validar chave PIX antes de fazer o saque (opcional)
+    # A Gatebox pode validar automaticamente, mas podemos fazer uma validação prévia
+    # pix_validation = await gatebox.validate_pix_key(pix_key)
+    
     # Realizar transferência PIX
-    transfer_response = await suitpay.transfer_pix(
-        value=amount,
-        pix_key=pix_key,
-        type_key=type_key,
-        url_callback=url_callback,
-        document_validation=document_validation,
-        external_id=external_id
+    # A Gatebox requer name (nome do recebedor) - usar nome do usuário se disponível
+    recipient_name = user.full_name or user.name or "Usuário"
+    
+    transfer_response = await gatebox.withdraw_pix(
+        external_id=external_id,
+        key=pix_key,
+        name=recipient_name,
+        amount=amount,
+        document_number=document_validation,
+        description=f"Saque de R$ {amount:.2f}"
     )
     
     if not transfer_response:
@@ -233,20 +227,11 @@ async def create_pix_withdrawal(
             detail="Erro ao processar transferência PIX no gateway"
         )
     
-    # Verificar resposta da SuitPay
-    response_status = transfer_response.get("response", "").upper()
-    if response_status != "OK":
-        error_messages = {
-            "ACCOUNT_DOCUMENTS_NOT_VALIDATED": "Conta não validada",
-            "NO_FUNDS": "Saldo insuficiente no gateway",
-            "PIX_KEY_NOT_FOUND": "Chave PIX não encontrada",
-            "UNAUTHORIZED_IP": "IP não autorizado",
-            "DOCUMENT_VALIDATE": "A chave PIX não pertence ao documento informado",
-            "DUPLICATE_EXTERNAL_ID": "ID externo já foi utilizado",
-            "ERROR": "Erro interno no gateway"
-        }
-        error_msg = error_messages.get(response_status, f"Erro: {response_status}")
-        raise HTTPException(status_code=400, detail=error_msg)
+    # Verificar se houve erro na resposta da Gatebox
+    if transfer_response.get("error"):
+        error_detail = transfer_response.get("detail", "Erro ao processar saque")
+        status_code = transfer_response.get("status_code", 400)
+        raise HTTPException(status_code=status_code, detail=error_detail)
     
     # Criar registro de saque
     withdrawal = Withdrawal(
@@ -255,13 +240,15 @@ async def create_pix_withdrawal(
         amount=amount,
         status=TransactionStatus.PENDING,
         transaction_id=str(uuid.uuid4()),
-        external_id=transfer_response.get("idTransaction") or external_id,
+        external_id=external_id,
         metadata_json=json.dumps({
             "pix_key": pix_key,
             "type_key": type_key,
             "document_validation": document_validation,
             "external_id": external_id,
-            "suitpay_response": transfer_response
+            "transaction_id": transfer_response.get("transactionId") or transfer_response.get("id"),
+            "end_to_end": transfer_response.get("endToEnd"),
+            "gatebox_response": transfer_response
         })
     )
     
@@ -277,45 +264,39 @@ async def create_pix_withdrawal(
 
 # ========== WEBHOOKS ==========
 
-@webhook_router.post("/suitpay/pix-cashin")
+@webhook_router.post("/gatebox/pix-cashin")
 async def webhook_pix_cashin(request: Request, db: Session = Depends(get_db)):
     """
-    Webhook para receber notificações de PIX Cash-in (depósitos) da SuitPay
+    Webhook para receber notificações de PIX Cash-in (depósitos) da Gatebox
+    Nota: A validação de webhook da Gatebox pode variar - ajustar conforme documentação oficial
     """
     try:
         data = await request.json()
         
-        # Buscar gateway PIX ativo para validar hash
+        # Buscar gateway PIX ativo
         gateway = get_active_pix_gateway(db)
-        credentials = json.loads(gateway.credentials) if gateway.credentials else {}
-        client_secret = credentials.get("client_secret") or credentials.get("cs")
-        
-        if not client_secret:
-            raise HTTPException(status_code=500, detail="Credenciais do gateway não configuradas")
-        
-        # Validar hash
-        if not SuitPayAPI.validate_webhook_hash(data.copy(), client_secret):
-            raise HTTPException(status_code=401, detail="Hash inválido")
         
         # Processar webhook
-        id_transaction = data.get("idTransaction")
-        status_transaction = data.get("statusTransaction")
-        value = data.get("value")
-        request_number = data.get("requestNumber")
+        # A Gatebox pode usar diferentes campos - ajustar conforme resposta real
+        external_id = data.get("externalId") or data.get("external_id")
+        transaction_id = data.get("transactionId") or data.get("transaction_id") or data.get("id")
+        status_transaction = data.get("status") or data.get("statusTransaction") or data.get("status_transaction")
+        amount = data.get("amount") or data.get("value")
+        end_to_end = data.get("endToEnd") or data.get("end_to_end")
         
-        # Buscar depósito pelo external_id ou request_number
+        # Buscar depósito pelo external_id
         deposit = None
-        if id_transaction:
-            deposit = db.query(Deposit).filter(Deposit.external_id == id_transaction).first()
+        if external_id:
+            deposit = db.query(Deposit).filter(Deposit.external_id == external_id).first()
         
-        if not deposit and request_number:
-            # Tentar buscar pelo request_number no metadata
+        # Se não encontrou pelo external_id, tentar pelo transaction_id no metadata
+        if not deposit and transaction_id:
             deposits = db.query(Deposit).filter(
                 Deposit.status == TransactionStatus.PENDING
             ).all()
             for d in deposits:
                 metadata = json.loads(d.metadata_json) if d.metadata_json else {}
-                if metadata.get("request_number") == request_number:
+                if metadata.get("transaction_id") == transaction_id or metadata.get("end_to_end") == end_to_end:
                     deposit = d
                     break
         
@@ -323,14 +304,17 @@ async def webhook_pix_cashin(request: Request, db: Session = Depends(get_db)):
             return {"status": "ok", "message": "Depósito não encontrado"}
         
         # Atualizar status do depósito
-        if status_transaction == "PAID_OUT":
+        # A Gatebox pode usar diferentes valores de status - ajustar conforme documentação
+        status_upper = str(status_transaction).upper() if status_transaction else ""
+        
+        if status_upper in ["PAID", "PAID_OUT", "CONFIRMED", "APPROVED", "SUCCESS"]:
             if deposit.status != TransactionStatus.APPROVED:
                 deposit.status = TransactionStatus.APPROVED
                 # Adicionar saldo ao usuário
                 user = db.query(User).filter(User.id == deposit.user_id).first()
                 if user:
                     user.balance += deposit.amount
-        elif status_transaction == "CHARGEBACK":
+        elif status_upper in ["CANCELLED", "CANCELED", "REJECTED", "FAILED", "CHARGEBACK"]:
             if deposit.status == TransactionStatus.APPROVED:
                 # Reverter saldo se já foi aprovado
                 user = db.query(User).filter(User.id == deposit.user_id).first()
@@ -353,42 +337,49 @@ async def webhook_pix_cashin(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Erro ao processar webhook: {str(e)}")
 
 
-@webhook_router.post("/suitpay/pix-cashout")
+@webhook_router.post("/gatebox/pix-cashout")
 async def webhook_pix_cashout(request: Request, db: Session = Depends(get_db)):
     """
-    Webhook para receber notificações de PIX Cash-out (saques) da SuitPay
+    Webhook para receber notificações de PIX Cash-out (saques) da Gatebox
+    Nota: A validação de webhook da Gatebox pode variar - ajustar conforme documentação oficial
     """
     try:
         data = await request.json()
         
-        # Buscar gateway PIX ativo para validar hash
+        # Buscar gateway PIX ativo
         gateway = get_active_pix_gateway(db)
-        credentials = json.loads(gateway.credentials) if gateway.credentials else {}
-        client_secret = credentials.get("client_secret") or credentials.get("cs")
-        
-        if not client_secret:
-            raise HTTPException(status_code=500, detail="Credenciais do gateway não configuradas")
-        
-        # Validar hash
-        if not SuitPayAPI.validate_webhook_hash(data.copy(), client_secret):
-            raise HTTPException(status_code=401, detail="Hash inválido")
         
         # Processar webhook
-        id_transaction = data.get("idTransaction")
-        status_transaction = data.get("statusTransaction")
+        external_id = data.get("externalId") or data.get("external_id")
+        transaction_id = data.get("transactionId") or data.get("transaction_id") or data.get("id")
+        status_transaction = data.get("status") or data.get("statusTransaction") or data.get("status_transaction")
+        end_to_end = data.get("endToEnd") or data.get("end_to_end")
         
         # Buscar saque pelo external_id
         withdrawal = None
-        if id_transaction:
-            withdrawal = db.query(Withdrawal).filter(Withdrawal.external_id == id_transaction).first()
+        if external_id:
+            withdrawal = db.query(Withdrawal).filter(Withdrawal.external_id == external_id).first()
+        
+        # Se não encontrou pelo external_id, tentar pelo transaction_id no metadata
+        if not withdrawal and transaction_id:
+            withdrawals = db.query(Withdrawal).filter(
+                Withdrawal.status == TransactionStatus.PENDING
+            ).all()
+            for w in withdrawals:
+                metadata = json.loads(w.metadata_json) if w.metadata_json else {}
+                if metadata.get("transaction_id") == transaction_id or metadata.get("end_to_end") == end_to_end:
+                    withdrawal = w
+                    break
         
         if not withdrawal:
             return {"status": "ok", "message": "Saque não encontrado"}
         
         # Atualizar status do saque
-        if status_transaction == "PAID_OUT":
+        status_upper = str(status_transaction).upper() if status_transaction else ""
+        
+        if status_upper in ["PAID", "PAID_OUT", "CONFIRMED", "APPROVED", "SUCCESS"]:
             withdrawal.status = TransactionStatus.APPROVED
-        elif status_transaction == "CANCELED":
+        elif status_upper in ["CANCELLED", "CANCELED", "REJECTED", "FAILED"]:
             # Reverter saldo se foi cancelado
             if withdrawal.status == TransactionStatus.PENDING:
                 user = db.query(User).filter(User.id == withdrawal.user_id).first()

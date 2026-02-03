@@ -639,9 +639,9 @@ function GatewaysTab({ token }: { token: string }) {
     name: '', 
     type: 'pix', 
     is_active: true, 
-    client_id: '',
-    client_secret: '',
-    sandbox: true
+    username: '',
+    password: '',
+    api_url: 'https://api.gatebox.com.br'
   });
   const [editingId, setEditingId] = useState<number | null>(null);
 
@@ -658,15 +658,15 @@ function GatewaysTab({ token }: { token: string }) {
   };
 
   const resetForm = () => {
-    setForm({ name: '', type: 'pix', is_active: true, client_id: '', client_secret: '', sandbox: true });
+    setForm({ name: '', type: 'pix', is_active: true, username: '', password: '', api_url: 'https://api.gatebox.com.br' });
     setEditingId(null);
   };
 
   const prepareCredentials = () => {
     return JSON.stringify({
-      client_id: form.client_id,
-      client_secret: form.client_secret,
-      sandbox: form.sandbox
+      username: form.username,
+      password: form.password,
+      api_url: form.api_url || 'https://api.gatebox.com.br'
     });
   };
 
@@ -732,9 +732,9 @@ function GatewaysTab({ token }: { token: string }) {
       name: gateway.name || '',
       type: gateway.type || 'pix',
       is_active: gateway.is_active ?? true,
-      client_id: '',
-      client_secret: '',
-      sandbox: true
+      username: '',
+      password: '',
+      api_url: 'https://api.gatebox.com.br'
     });
 
     // Parse credentials se existir
@@ -743,9 +743,9 @@ function GatewaysTab({ token }: { token: string }) {
         const creds = JSON.parse(gateway.credentials);
         setForm(prev => ({
           ...prev,
-          client_id: creds.client_id || creds.ci || '',
-          client_secret: creds.client_secret || creds.cs || '',
-          sandbox: creds.sandbox !== undefined ? creds.sandbox : true
+          username: creds.username || '',
+          password: creds.password || '',
+          api_url: creds.api_url || 'https://api.gatebox.com.br'
         }));
       } catch (e) {
         // Se não for JSON, deixa vazio
@@ -786,7 +786,7 @@ function GatewaysTab({ token }: { token: string }) {
             <label className="block text-sm text-gray-400 mb-1">Nome do Gateway</label>
             <input 
               className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600 focus:border-[#d4af37] focus:outline-none" 
-              placeholder="Ex: SuitPay PIX"
+              placeholder="Ex: Gatebox PIX"
               value={form.name} 
               onChange={e=>setForm({...form, name:e.target.value})}
             />
@@ -806,35 +806,37 @@ function GatewaysTab({ token }: { token: string }) {
           </div>
 
           <div>
-            <label className="block text-sm text-gray-400 mb-1">Client ID (ci)</label>
+            <label className="block text-sm text-gray-400 mb-1">Username</label>
             <input 
               type="text"
               className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600 focus:border-[#d4af37] focus:outline-none" 
-              placeholder="Client ID da SuitPay"
-              value={form.client_id} 
-              onChange={e=>setForm({...form, client_id:e.target.value})}
+              placeholder="Username da Gatebox"
+              value={form.username} 
+              onChange={e=>setForm({...form, username:e.target.value})}
             />
           </div>
 
           <div>
-            <label className="block text-sm text-gray-400 mb-1">Client Secret (cs)</label>
+            <label className="block text-sm text-gray-400 mb-1">Password</label>
             <input 
               type="password"
               className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600 focus:border-[#d4af37] focus:outline-none" 
-              placeholder="Client Secret da SuitPay"
-              value={form.client_secret} 
-              onChange={e=>setForm({...form, client_secret:e.target.value})}
+              placeholder="Password da Gatebox"
+              value={form.password} 
+              onChange={e=>setForm({...form, password:e.target.value})}
             />
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="md:col-span-2">
+            <label className="block text-sm text-gray-400 mb-1">API URL</label>
             <input 
-              type="checkbox" 
-              checked={form.sandbox} 
-              onChange={e=>setForm({...form, sandbox:e.target.checked})}
-              className="w-4 h-4"
+              type="text"
+              className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600 focus:border-[#d4af37] focus:outline-none" 
+              placeholder="https://api.gatebox.com.br"
+              value={form.api_url} 
+              onChange={e=>setForm({...form, api_url:e.target.value})}
             />
-            <label className="text-sm text-gray-300">Ambiente Sandbox</label>
+            <p className="text-xs text-gray-500 mt-1">URL base da API Gatebox (padrão: https://api.gatebox.com.br)</p>
           </div>
 
           <div className="flex items-center gap-2">

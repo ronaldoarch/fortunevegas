@@ -73,9 +73,9 @@ export default function Depositar() {
           ? JSON.parse(data.metadata_json) 
           : data.metadata_json || {};
         
-        const suitpayResponse = metadata.suitpay_response || {};
-        const pixCode = metadata.pix_code || suitpayResponse.paymentCode || suitpayResponse.payment_code || '';
-        const pixQrCodeBase64 = metadata.pix_qr_code_base64 || suitpayResponse.paymentCodeBase64 || suitpayResponse.payment_code_base64 || '';
+        const gateboxResponse = metadata.gatebox_response || {};
+        const pixCode = metadata.pix_code || gateboxResponse.qrCode || gateboxResponse.pixCode || gateboxResponse.emv || '';
+        const pixQrCodeBase64 = metadata.pix_qr_code_base64 || gateboxResponse.qrCodeBase64 || gateboxResponse.base64 || '';
         
         setPixData({
           qr_code: pixCode,
