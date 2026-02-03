@@ -312,22 +312,56 @@ async def create_pix_withdrawal(
         status_code = transfer_response.get("status_code", 400)
         raise HTTPException(status_code=status_code, detail=error_detail)
     
+    # A Gatebox pode retornar dados em diferentes estruturas
+    # Verificar se há um campo "data" ou similar que contenha a resposta real
+    actual_response = transfer_response
+    if isinstance(transfer_response, dict):
+        # Verificar se há um campo "data" que contenha a resposta real
+        if "data" in transfer_response and isinstance(transfer_response["data"], dict):
+            actual_response = transfer_response["data"]
+        # Verificar se há um campo "result" que contenha a resposta real
+        elif "result" in transfer_response and isinstance(transfer_response["result"], dict):
+            actual_response = transfer_response["result"]
+    
+    # Log para debug
+    print(f"Gatebox Withdrawal Response (raw): {json.dumps(transfer_response, indent=2)}")
+    print(f"Gatebox Withdrawal Response (actual): {json.dumps(actual_response, indent=2)}")
+    
+    # Extrair transaction_id e end_to_end da resposta
+    transaction_id_gatebox = (
+        actual_response.get("transactionId") or 
+        actual_response.get("id") or 
+        actual_response.get("transaction_id") or
+        actual_response.get("externalId") or
+        ""
+    )
+    
+    end_to_end = (
+        actual_response.get("endToEnd") or 
+        actual_response.get("end_to_end") or
+        None
+    )
+    
+    print(f"Extracted Transaction ID: {transaction_id_gatebox}")
+    print(f"Extracted End-to-End: {end_to_end}")
+    
     # Criar registro de saque
     withdrawal = Withdrawal(
         user_id=user.id,
         gateway_id=gateway.id,
         amount=amount,
         status=TransactionStatus.PENDING,
-        transaction_id=str(uuid.uuid4()),
+        transaction_id=transaction_id_gatebox or str(uuid.uuid4()),
         external_id=external_id,
         metadata_json=json.dumps({
             "pix_key": pix_key,
             "type_key": type_key,
             "document_validation": document_validation,
             "external_id": external_id,
-            "transaction_id": transfer_response.get("transactionId") or transfer_response.get("id"),
-            "end_to_end": transfer_response.get("endToEnd"),
-            "gatebox_response": transfer_response
+            "transaction_id": transaction_id_gatebox,
+            "end_to_end": end_to_end,
+            "gatebox_response": actual_response,
+            "gatebox_raw_response": transfer_response  # Manter resposta original para debug
         })
     )
     
