@@ -393,6 +393,13 @@ function DashboardTab({ stats, loading, onRefresh }: { stats: Stats | null; load
     return <div className="text-center py-12">Erro ao carregar estatísticas</div>;
   }
 
+  if (!stats) {
+    return null;
+  }
+
+  // TypeScript guard - após os checks acima, stats não pode ser null
+  const safeStats = stats;
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -412,74 +419,74 @@ function DashboardTab({ stats, loading, onRefresh }: { stats: Stats | null; load
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard 
           title="USUARIOS NA CASA" 
-          value={stats.usuarios_na_casa ?? stats.total_users} 
-          subtitle={`${stats.usuarios_na_casa ?? stats.total_users} Usuarios Registrados`}
+          value={safeStats.usuarios_na_casa ?? safeStats.total_users} 
+          subtitle={`${safeStats.usuarios_na_casa ?? safeStats.total_users} Usuarios Registrados`}
           icon={<Users />} 
           accent 
         />
         <StatCard 
           title="BALANÇO JOGADOR" 
-          value={`R$ ${(stats.balanco_jogador_total ?? 0).toFixed(2)}`} 
-          subtitle={`${stats.jogadores_com_saldo ?? 0} Jogadores com Saldo`}
+          value={`R$ ${(safeStats.balanco_jogador_total ?? 0).toFixed(2)}`} 
+          subtitle={`${safeStats.jogadores_com_saldo ?? 0} Jogadores com Saldo`}
           icon={<DollarSign />} 
         />
         <StatCard 
           title="GGR GERADO" 
-          value={`R$ ${(stats.ggr_gerado ?? stats.net_revenue).toFixed(2)}`} 
-          subtitle={`Taxa (${stats.ggr_taxa ?? 17}%)`}
+          value={`R$ ${(safeStats.ggr_gerado ?? safeStats.net_revenue).toFixed(2)}`} 
+          subtitle={`Taxa (${safeStats.ggr_taxa ?? 17}%)`}
           icon={<TrendingUp />} 
         />
         <StatCard 
           title="TOTAL PAGO GGR" 
-          value={`R$ ${(stats.total_pago_ggr ?? stats.total_withdrawal_amount).toFixed(2)}`} 
-          subtitle={`${stats.pagamentos_feitos_total ?? stats.total_withdrawals} Pagamento Feitos`}
+          value={`R$ ${(safeStats.total_pago_ggr ?? safeStats.total_withdrawal_amount).toFixed(2)}`} 
+          subtitle={`${safeStats.pagamentos_feitos_total ?? safeStats.total_withdrawals} Pagamento Feitos`}
           icon={<ArrowUpCircle />} 
         />
         <StatCard 
           title="PIX RECEBIDO HOJE" 
-          value={`R$ ${(stats.pix_recebido_hoje ?? 0).toFixed(2)}`} 
-          subtitle={`${stats.pix_recebido_count_hoje ?? 0} Pagamentos recebidos`}
+          value={`R$ ${(safeStats.pix_recebido_hoje ?? 0).toFixed(2)}`} 
+          subtitle={`${safeStats.pix_recebido_count_hoje ?? 0} Pagamentos recebidos`}
           icon={<ArrowDownCircle />} 
         />
         <StatCard 
           title="PIX FEITO HOJE" 
-          value={`R$ ${(stats.pix_feito_hoje ?? 0).toFixed(2)}`} 
-          subtitle={`${stats.pix_feito_count_hoje ?? 0} Pagamentos feitos`}
+          value={`R$ ${(safeStats.pix_feito_hoje ?? 0).toFixed(2)}`} 
+          subtitle={`${safeStats.pix_feito_count_hoje ?? 0} Pagamentos feitos`}
           icon={<ArrowUpCircle />} 
         />
         <StatCard 
           title="PIX GERADO HOJE" 
-          value={stats.pix_gerado_hoje ?? 0} 
-          subtitle={`${Math.round(stats.pix_percentual_pago ?? 0)}% Pago`}
+          value={safeStats.pix_gerado_hoje ?? 0} 
+          subtitle={`${Math.round(safeStats.pix_percentual_pago ?? 0)}% Pago`}
           icon={<Activity />} 
         />
         <StatCard 
           title="USUÁRIO REGISTRADOS HOJE" 
-          value={stats.usuarios_registrados_hoje ?? 0} 
-          subtitle={`${stats.depositos_hoje ?? 0} Depósitos (${stats.depositos_hoje ? Math.round((stats.depositos_hoje / (stats.usuarios_registrados_hoje || 1)) * 100) : 0}%)`}
+          value={safeStats.usuarios_registrados_hoje ?? 0} 
+          subtitle={`${safeStats.depositos_hoje ?? 0} Depósitos (${safeStats.depositos_hoje ? Math.round((safeStats.depositos_hoje / (safeStats.usuarios_registrados_hoje || 1)) * 100) : 0}%)`}
           icon={<Users />} 
         />
         <StatCard 
           title="PAGAMENTOS RECEBIDOS" 
-          value={`R$ ${(stats.valor_pagamentos_recebidos_hoje ?? 0).toFixed(2)}`} 
-          subtitle={`${stats.pagamentos_recebidos_hoje ?? 0} Depósitos Recebidos`}
+          value={`R$ ${(safeStats.valor_pagamentos_recebidos_hoje ?? 0).toFixed(2)}`} 
+          subtitle={`${safeStats.pagamentos_recebidos_hoje ?? 0} Depósitos Recebidos`}
           icon={<ArrowDownCircle />} 
         />
         <StatCard 
           title="PAGAMENTOS FEITOS" 
-          value={`R$ ${(stats.valor_pagamentos_feitos_hoje ?? 0).toFixed(2)}`} 
-          subtitle={`${stats.pagamentos_feitos_hoje ?? 0} Pagamentos enviados`}
+          value={`R$ ${(safeStats.valor_pagamentos_feitos_hoje ?? 0).toFixed(2)}`} 
+          subtitle={`${safeStats.pagamentos_feitos_hoje ?? 0} Pagamentos enviados`}
           icon={<ArrowUpCircle />} 
         />
         <StatCard 
           title="FTD HOJE" 
-          value={stats.ftd_hoje ?? 0} 
-          subtitle={`${stats.total_ftds} Totais (geral)`}
+          value={safeStats.ftd_hoje ?? 0} 
+          subtitle={`${safeStats.total_ftds} Totais (geral)`}
           icon={<TrendingUp />} 
         />
         <StatCard 
           title="TOTAL LUCRO" 
-          value={`R$ ${(stats.total_lucro ?? stats.net_revenue).toFixed(2)}`} 
+          value={`R$ ${(safeStats.total_lucro ?? safeStats.net_revenue).toFixed(2)}`} 
           subtitle="Total de lucro geral"
           icon={<DollarSign />} 
         />
@@ -3387,7 +3394,7 @@ function IGameWinProvidersTab({ token }: { token: string }) {
 }
 
 // ========== PROMOTIONS TAB ==========
-function PromotionsTab({ token }: { token: string }) {
+function PromotionsTab({ token: _token }: { token: string }) {
   const [promotions, setPromotions] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -3551,7 +3558,7 @@ function PromotionsTab({ token }: { token: string }) {
 }
 
 // ========== SUPPORT TAB ==========
-function SupportTab({ token }: { token: string }) {
+function SupportTab({ token: _token }: { token: string }) {
   const [config, setConfig] = useState({
     support_email: '',
     support_phone: '',
@@ -3706,7 +3713,7 @@ function SupportTab({ token }: { token: string }) {
 }
 
 // ========== MANAGERS TAB ==========
-function ManagersTab({ token }: { token: string }) {
+function ManagersTab({ token: _token }: { token: string }) {
   const [managers, setManagers] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -3878,7 +3885,7 @@ function ManagersTab({ token }: { token: string }) {
 }
 
 // ========== COIN STORE TAB ==========
-function CoinStoreTab({ token }: { token: string }) {
+function CoinStoreTab({ token: _token }: { token: string }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -3895,7 +3902,7 @@ function CoinStoreTab({ token }: { token: string }) {
 }
 
 // ========== COUPONS TAB ==========
-function CouponsTab({ token }: { token: string }) {
+function CouponsTab({ token: _token }: { token: string }) {
   const [coupons, setCoupons] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
