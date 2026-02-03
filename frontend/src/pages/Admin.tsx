@@ -4,9 +4,9 @@ import {
   Users, DollarSign, TrendingUp, Settings, 
   LogOut, Menu, X, CreditCard, ArrowUpCircle, 
   ArrowDownCircle, Activity, RefreshCw,
-  Image as ImageIcon, Home, BarChart3,
+  Image as ImageIcon, Home,
   ChevronUp, ChevronDown, Percent, FileText, 
-  Gift, ShoppingBag, Tag, Gamepad2, Megaphone, HelpCircle, UserCog
+  Gift, Tag, Gamepad2, Megaphone, HelpCircle, UserCog
 } from 'lucide-react';
 import type { ThemePalette } from '../utils/themeManager';
 import { applyThemeToDocument } from '../utils/themeManager';
@@ -140,12 +140,6 @@ export default function Admin() {
               onClick={() => setActiveTab('dashboard')}
             />
             <NavItem
-              icon={<BarChart3 />}
-              label="Métricas"
-              active={activeTab === 'metrics'}
-              onClick={() => setActiveTab('metrics')}
-            />
-            <NavItem
               icon={<Settings />}
               label="Configuração"
               active={activeTab === 'settings'}
@@ -164,16 +158,10 @@ export default function Admin() {
                 onClick={() => setActiveTab('ggr')}
               />
               <NavSubItem
-                icon={<ArrowUpCircle />}
-                label="Saques"
-                active={activeTab === 'withdrawals'}
-                onClick={() => setActiveTab('withdrawals')}
-              />
-              <NavSubItem
-                icon={<ArrowDownCircle />}
-                label="Depositos"
-                active={activeTab === 'deposits'}
-                onClick={() => setActiveTab('deposits')}
+                icon={<DollarSign />}
+                label="Depósitos e Saques"
+                active={activeTab === 'transactions'}
+                onClick={() => setActiveTab('transactions')}
               />
               <NavSubItem
                 icon={<FileText />}
@@ -207,12 +195,6 @@ export default function Admin() {
               expanded={expandedSections.marketing}
               onToggle={() => setExpandedSections({...expandedSections, marketing: !expandedSections.marketing})}
             >
-              <NavSubItem
-                icon={<ShoppingBag />}
-                label="Loja de Coins"
-                active={activeTab === 'coin-store'}
-                onClick={() => setActiveTab('coin-store')}
-              />
               <NavSubItem
                 icon={<UserCog />}
                 label="Gerentes"
@@ -263,12 +245,6 @@ export default function Admin() {
                 onClick={() => setActiveTab('igamewin-providers')}
               />
               <NavSubItem
-                icon={<Activity />}
-                label="Grade de Jogos"
-                active={activeTab === 'game-layout'}
-                onClick={() => setActiveTab('game-layout')}
-              />
-              <NavSubItem
                 icon={<TrendingUp />}
                 label="Tracking"
                 active={activeTab === 'tracking'}
@@ -287,12 +263,6 @@ export default function Admin() {
                 onClick={() => setActiveTab('affiliates')}
               />
               <NavSubItem
-                icon={<TrendingUp />}
-                label="FTDs"
-                active={activeTab === 'ftds'}
-                onClick={() => setActiveTab('ftds')}
-              />
-              <NavSubItem
                 icon={<HelpCircle />}
                 label="Suporte"
                 active={activeTab === 'support'}
@@ -306,9 +276,7 @@ export default function Admin() {
         <main className="flex-1 p-6">
           {activeTab === 'dashboard' && <DashboardTab stats={stats} loading={loading} onRefresh={loadStats} />}
           {activeTab === 'users' && <UsersTab token={token || ''} />}
-          {activeTab === 'deposits' && <DepositsTab token={token || ''} />}
-          {activeTab === 'withdrawals' && <WithdrawalsTab token={token || ''} />}
-          {activeTab === 'ftds' && <FTDsTab token={token || ''} />}
+          {activeTab === 'transactions' && <TransactionsTab token={token || ''} />}
           {activeTab === 'gateways' && <GatewaysTab token={token || ''} />}
           {activeTab === 'igamewin' && <IGameWinTab token={token || ''} />}
           {activeTab === 'igamewin-providers' && <IGameWinProvidersTab token={token || ''} />}
@@ -316,7 +284,6 @@ export default function Admin() {
           {activeTab === 'settings' && <SettingsTab token={token || ''} />}
           {activeTab === 'branding' && <BrandingTab token={token || ''} />}
           {activeTab === 'themes' && <ThemesTab token={token || ''} />}
-          {activeTab === 'game-layout' && <GameLayoutTab token={token || ''} />}
           {activeTab === 'affiliates' && <AffiliatesTab token={token || ''} />}
           {activeTab === 'ggr' && <GGRTab token={token || ''} />}
           {activeTab === 'bets' && <BetsTab token={token || ''} />}
@@ -324,7 +291,6 @@ export default function Admin() {
           {activeTab === 'promotions' && <PromotionsTab token={token || ''} />}
           {activeTab === 'support' && <SupportTab token={token || ''} />}
           {activeTab === 'managers' && <ManagersTab token={token || ''} />}
-          {activeTab === 'coin-store' && <CoinStoreTab token={token || ''} />}
           {activeTab === 'coupons' && <CouponsTab token={token || ''} />}
         </main>
       </div>
@@ -405,7 +371,7 @@ function DashboardTab({ stats, loading, onRefresh }: { stats: Stats | null; load
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-2xl font-bold">Dashboard</h2>
-          <p className="text-sm text-gray-400">Visão geral rápida da operação</p>
+          <p className="text-sm text-gray-400">Valores reais da operação</p>
         </div>
         <button 
           onClick={onRefresh} 
@@ -416,79 +382,41 @@ function DashboardTab({ stats, loading, onRefresh }: { stats: Stats | null; load
           {loading ? 'Atualizando...' : 'Atualizar'}
         </button>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
         <StatCard 
-          title="USUARIOS NA CASA" 
-          value={safeStats.usuarios_na_casa ?? safeStats.total_users} 
-          subtitle={`${safeStats.usuarios_na_casa ?? safeStats.total_users} Usuarios Registrados`}
-          icon={<Users />} 
-          accent 
+          title="DEPÓSITOS TOTAIS" 
+          value={`R$ ${(safeStats.total_deposit_amount ?? 0).toFixed(2)}`} 
+          subtitle={`${safeStats.total_deposits ?? 0} transações aprovadas`}
+          icon={<ArrowDownCircle />} 
+          accent="green"
         />
         <StatCard 
-          title="BALANÇO JOGADOR" 
-          value={`R$ ${(safeStats.balanco_jogador_total ?? 0).toFixed(2)}`} 
-          subtitle={`${safeStats.jogadores_com_saldo ?? 0} Jogadores com Saldo`}
-          icon={<DollarSign />} 
+          title="SAQUES TOTAIS" 
+          value={`R$ ${(safeStats.total_withdrawal_amount ?? 0).toFixed(2)}`} 
+          subtitle={`${safeStats.total_withdrawals ?? 0} transações aprovadas`}
+          icon={<ArrowUpCircle />} 
+          accent="orange"
+        />
+        <StatCard 
+          title="PRIMEIROS DEPÓSITOS" 
+          value={safeStats.total_ftds ?? 0} 
+          subtitle="Usuários que fizeram 1° depósito"
+          icon={<TrendingUp />} 
+          accent="orange"
+        />
+        <StatCard 
+          title="USUÁRIOS" 
+          value={safeStats.total_users ?? 0} 
+          subtitle={`${safeStats.jogadores_com_saldo ?? 0} com saldo`}
+          icon={<Users />} 
+          accent="orange"
         />
         <StatCard 
           title="GGR GERADO" 
-          value={`R$ ${(safeStats.ggr_gerado ?? safeStats.net_revenue).toFixed(2)}`} 
-          subtitle={`Taxa (${safeStats.ggr_taxa ?? 17}%)`}
+          value={`R$ ${(safeStats.ggr_gerado ?? safeStats.net_revenue ?? 0).toFixed(2)}`} 
+          subtitle={`Taxa ${safeStats.ggr_taxa ?? 17}%`}
           icon={<TrendingUp />} 
-        />
-        <StatCard 
-          title="TOTAL PAGO GGR" 
-          value={`R$ ${(safeStats.total_pago_ggr ?? safeStats.total_withdrawal_amount).toFixed(2)}`} 
-          subtitle={`${safeStats.pagamentos_feitos_total ?? safeStats.total_withdrawals} Pagamento Feitos`}
-          icon={<ArrowUpCircle />} 
-        />
-        <StatCard 
-          title="PIX RECEBIDO HOJE" 
-          value={`R$ ${(safeStats.pix_recebido_hoje ?? 0).toFixed(2)}`} 
-          subtitle={`${safeStats.pix_recebido_count_hoje ?? 0} Pagamentos recebidos`}
-          icon={<ArrowDownCircle />} 
-        />
-        <StatCard 
-          title="PIX FEITO HOJE" 
-          value={`R$ ${(safeStats.pix_feito_hoje ?? 0).toFixed(2)}`} 
-          subtitle={`${safeStats.pix_feito_count_hoje ?? 0} Pagamentos feitos`}
-          icon={<ArrowUpCircle />} 
-        />
-        <StatCard 
-          title="PIX GERADO HOJE" 
-          value={safeStats.pix_gerado_hoje ?? 0} 
-          subtitle={`${Math.round(safeStats.pix_percentual_pago ?? 0)}% Pago`}
-          icon={<Activity />} 
-        />
-        <StatCard 
-          title="USUÁRIO REGISTRADOS HOJE" 
-          value={safeStats.usuarios_registrados_hoje ?? 0} 
-          subtitle={`${safeStats.depositos_hoje ?? 0} Depósitos (${safeStats.depositos_hoje ? Math.round((safeStats.depositos_hoje / (safeStats.usuarios_registrados_hoje || 1)) * 100) : 0}%)`}
-          icon={<Users />} 
-        />
-        <StatCard 
-          title="PAGAMENTOS RECEBIDOS" 
-          value={`R$ ${(safeStats.valor_pagamentos_recebidos_hoje ?? 0).toFixed(2)}`} 
-          subtitle={`${safeStats.pagamentos_recebidos_hoje ?? 0} Depósitos Recebidos`}
-          icon={<ArrowDownCircle />} 
-        />
-        <StatCard 
-          title="PAGAMENTOS FEITOS" 
-          value={`R$ ${(safeStats.valor_pagamentos_feitos_hoje ?? 0).toFixed(2)}`} 
-          subtitle={`${safeStats.pagamentos_feitos_hoje ?? 0} Pagamentos enviados`}
-          icon={<ArrowUpCircle />} 
-        />
-        <StatCard 
-          title="FTD HOJE" 
-          value={safeStats.ftd_hoje ?? 0} 
-          subtitle={`${safeStats.total_ftds} Totais (geral)`}
-          icon={<TrendingUp />} 
-        />
-        <StatCard 
-          title="TOTAL LUCRO" 
-          value={`R$ ${(safeStats.total_lucro ?? safeStats.net_revenue).toFixed(2)}`} 
-          subtitle="Total de lucro geral"
-          icon={<DollarSign />} 
+          accent="green"
         />
       </div>
     </div>
@@ -500,13 +428,37 @@ function StatCard({ title, value, subtitle, icon, accent = false }: {
   value: string | number; 
   subtitle?: string;
   icon: React.ReactNode; 
-  accent?: boolean 
+  accent?: boolean | string
 }) {
+  const accentClass = accent === 'green' 
+    ? 'border-green-500 bg-green-500/10' 
+    : accent === 'orange' 
+    ? 'border-orange-500 bg-orange-500/10' 
+    : accent === true
+    ? 'border-emerald-500 bg-emerald-500/10'
+    : 'border-gray-700';
+  
+  const textAccentClass = accent === 'green'
+    ? 'text-green-400'
+    : accent === 'orange'
+    ? 'text-orange-400'
+    : accent === true
+    ? 'text-emerald-400'
+    : 'text-gray-400';
+  
+  const iconAccentClass = accent === 'green'
+    ? 'text-green-400'
+    : accent === 'orange'
+    ? 'text-orange-400'
+    : accent === true
+    ? 'text-emerald-400'
+    : 'text-[#d4af37]';
+
   return (
-    <div className={`rounded-lg p-4 border ${accent ? 'border-emerald-500 bg-emerald-500/10' : 'border-gray-700'} bg-gray-800`}>
+    <div className={`rounded-lg p-4 border ${accentClass} bg-gray-800`}>
       <div className="flex items-center justify-between mb-2">
-        <h3 className={`text-xs font-semibold uppercase ${accent ? 'text-emerald-400' : 'text-gray-400'}`}>{title}</h3>
-        <div className={accent ? 'text-emerald-400' : 'text-[#d4af37]'}>{icon}</div>
+        <h3 className={`text-xs font-semibold uppercase ${textAccentClass}`}>{title}</h3>
+        <div className={iconAccentClass}>{icon}</div>
       </div>
       <p className="text-xl font-bold mb-1">{value}</p>
       {subtitle && <p className="text-xs text-gray-500">{subtitle}</p>}
@@ -580,91 +532,119 @@ function UsersTab({ token }: { token: string }) {
   );
 }
 
-function DepositsTab({ token }: { token: string }) {
-  const [items, setItems] = useState<any[]>([]);
+// ========== TRANSACTIONS TAB (Depósitos e Saques Unificados) ==========
+function TransactionsTab({ token }: { token: string }) {
+  const [deposits, setDeposits] = useState<any[]>([]);
+  const [withdrawals, setWithdrawals] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [activeType, setActiveType] = useState<'deposits' | 'withdrawals'>('deposits');
 
-  const fetchData = async () => {
+  const fetchDeposits = async () => {
     setLoading(true); setError('');
     try {
       const res = await fetch(`${API_URL}/api/admin/deposits`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!res.ok) throw new Error('Falha ao carregar depósitos');
-      setItems(await res.json());
+      setDeposits(await res.json());
     } catch (err:any) { setError(err.message); }
     finally { setLoading(false); }
   };
-  useEffect(() => { fetchData(); }, []);
 
-  return (
-    <TabTable
-      title="Depósitos"
-      loading={loading}
-      error={error}
-      onRefresh={fetchData}
-      columns={['ID','User','Valor','Status','Criado em']}
-      rows={items.map(d => [d.id, d.user_id, `R$ ${d.amount?.toFixed(2)}`, d.status, d.created_at])}
-    />
-  );
-}
-
-function WithdrawalsTab({ token }: { token: string }) {
-  const [items, setItems] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const fetchData = async () => {
+  const fetchWithdrawals = async () => {
     setLoading(true); setError('');
     try {
       const res = await fetch(`${API_URL}/api/admin/withdrawals`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!res.ok) throw new Error('Falha ao carregar saques');
-      setItems(await res.json());
+      setWithdrawals(await res.json());
     } catch (err:any) { setError(err.message); }
     finally { setLoading(false); }
   };
-  useEffect(() => { fetchData(); }, []);
+
+  const fetchAll = async () => {
+    await Promise.all([fetchDeposits(), fetchWithdrawals()]);
+  };
+
+  useEffect(() => { fetchAll(); }, []);
+
   return (
-    <TabTable
-      title="Saques"
-      loading={loading}
-      error={error}
-      onRefresh={fetchData}
-      columns={['ID','User','Valor','Status','Criado em']}
-      rows={items.map(d => [d.id, d.user_id, `R$ ${d.amount?.toFixed(2)}`, d.status, d.created_at])}
-    />
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold">Depósitos e Saques</h2>
+        <button onClick={fetchAll} className="flex items-center gap-2 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded">
+          <RefreshCw size={18} /> Atualizar
+        </button>
+      </div>
+
+      <div className="flex gap-2 border-b border-gray-700">
+        <button
+          onClick={() => setActiveType('deposits')}
+          className={`px-4 py-2 font-semibold transition-colors ${
+            activeType === 'deposits'
+              ? 'border-b-2 border-green-500 text-green-400'
+              : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          Depósitos ({deposits.length})
+        </button>
+        <button
+          onClick={() => setActiveType('withdrawals')}
+          className={`px-4 py-2 font-semibold transition-colors ${
+            activeType === 'withdrawals'
+              ? 'border-b-2 border-orange-500 text-orange-400'
+              : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          Saques ({withdrawals.length})
+        </button>
+      </div>
+
+      {error && (
+        <div className="bg-red-500/20 border border-red-500 rounded-lg p-3 text-red-400 text-sm">
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="text-center py-12">Carregando...</div>
+      ) : activeType === 'deposits' ? (
+        <TabTable
+          title=""
+          loading={false}
+          error=""
+          onRefresh={fetchDeposits}
+          columns={['ID', 'User', 'Valor', 'Status', 'Criado em']}
+          rows={deposits.map(d => [
+            d.id,
+            d.user_id,
+            `R$ ${d.amount?.toFixed(2)}`,
+            d.status,
+            new Date(d.created_at).toLocaleString('pt-BR')
+          ])}
+        />
+      ) : (
+        <TabTable
+          title=""
+          loading={false}
+          error=""
+          onRefresh={fetchWithdrawals}
+          columns={['ID', 'User', 'Valor', 'Status', 'Criado em']}
+          rows={withdrawals.map(w => [
+            w.id,
+            w.user_id,
+            `R$ ${w.amount?.toFixed(2)}`,
+            w.status,
+            new Date(w.created_at).toLocaleString('pt-BR')
+          ])}
+        />
+      )}
+    </div>
   );
 }
 
-function FTDsTab({ token }: { token: string }) {
-  const [items, setItems] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const fetchData = async () => {
-    setLoading(true); setError('');
-    try {
-      const res = await fetch(`${API_URL}/api/admin/ftds`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (!res.ok) throw new Error('Falha ao carregar FTDs');
-      setItems(await res.json());
-    } catch (err:any) { setError(err.message); }
-    finally { setLoading(false); }
-  };
-  useEffect(() => { fetchData(); }, []);
-  return (
-    <TabTable
-      title="FTDs"
-      loading={loading}
-      error={error}
-      onRefresh={fetchData}
-      columns={['ID','User','Depósito','Valor','Taxa','Status']}
-      rows={items.map(d => [d.id, d.user_id, d.deposit_id, `R$ ${d.amount?.toFixed(2)}`, `${d.pass_rate}%`, d.status])}
-    />
-  );
-}
 
 function GatewaysTab({ token }: { token: string }) {
   const [items, setItems] = useState<any[]>([]);
@@ -2125,7 +2105,7 @@ function BetsTab({ token }: { token: string }) {
 
   useEffect(() => {
     fetchBets();
-  }, []);
+  }, [token]);
 
   return (
     <TabTable
@@ -2236,7 +2216,7 @@ function NotificationsTab({ token }: { token: string }) {
 
   useEffect(() => {
     fetchNotifications();
-  }, []);
+  }, [token]);
 
   return (
     <div className="space-y-4">
@@ -2363,8 +2343,8 @@ function NotificationsTab({ token }: { token: string }) {
   );
 }
 
-// ========== GAME LAYOUT TAB ==========
-function GameLayoutTab({ token }: { token: string }) {
+// ========== GAME LAYOUT TAB (REMOVED) ==========
+// function GameLayoutTab({ token }: { token: string }) {
   const [layouts, setLayouts] = useState<any[]>([]);
   const [allGames, setAllGames] = useState<any[]>([]);
   const [providerLayouts, setProviderLayouts] = useState<any[]>([]);
@@ -2825,7 +2805,7 @@ function GameLayoutTab({ token }: { token: string }) {
       )}
     </div>
   );
-}
+} */
 
 // ========== AFFILIATES TAB ==========
 function AffiliatesTab({ token }: { token: string }) {
@@ -3884,22 +3864,7 @@ function ManagersTab({ token: _token }: { token: string }) {
   );
 }
 
-// ========== COIN STORE TAB ==========
-function CoinStoreTab({ token: _token }: { token: string }) {
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">Loja de Coins</h2>
-          <p className="text-sm text-gray-400">Gerenciamento da loja de coins</p>
-        </div>
-      </div>
-      <div className="bg-gray-800/60 p-6 rounded-lg border border-gray-700 text-center">
-        <p className="text-gray-400">Funcionalidade em desenvolvimento</p>
-      </div>
-    </div>
-  );
-}
+// ========== COIN STORE TAB (REMOVED) ==========
 
 // ========== COUPONS TAB ==========
 function CouponsTab({ token: _token }: { token: string }) {
