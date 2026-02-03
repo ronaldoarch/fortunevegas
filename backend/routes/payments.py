@@ -106,6 +106,21 @@ async def create_pix_deposit(
     # Gerar external_id único para controle de duplicidade
     external_id = f"DEP_{user.id}_{int(datetime.utcnow().timestamp())}"
     
+    # Preparar dados para a API Gatebox
+    # Telefone é opcional - só enviar se existir e estiver em formato válido
+    phone_to_send = None
+    if user.phone:
+        import re
+        # Limpar telefone (remover caracteres não numéricos)
+        phone_clean = re.sub(r'[^0-9]', '', user.phone)
+        # Validar se tem pelo menos 10 dígitos (DDD + número)
+        if len(phone_clean) >= 10:
+            # Formatar como +55 (código do Brasil) + DDD + número
+            if not phone_clean.startswith('55'):
+                phone_to_send = f"+55{phone_clean}"
+            else:
+                phone_to_send = f"+{phone_clean}"
+    
     # Gerar código PIX
     pix_response = await gatebox.create_immediate_qrcode(
         external_id=external_id,
@@ -114,7 +129,7 @@ async def create_pix_deposit(
         name=deposit_data.payer_name,
         expire=3600,  # 1 hora de expiração
         email=user.email,
-        phone=user.phone,
+        phone=phone_to_send,  # Pode ser None se não houver telefone válido
         identification=f"Depósito - {deposit_data.payer_name}",
         description=f"Depósito de R$ {deposit_data.amount:.2f}"
     )
