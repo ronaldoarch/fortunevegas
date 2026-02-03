@@ -79,7 +79,17 @@ export default function Depositar() {
         console.log('Parsed Metadata:', metadata);
         
         const gateboxResponse = metadata.gatebox_response || {};
+        const gateboxRawResponse = metadata.gatebox_raw_response || {};
         console.log('Gatebox Response:', gateboxResponse);
+        console.log('Gatebox Raw Response:', gateboxRawResponse);
+        
+        // Verificar se há dados em um campo "data" ou "result"
+        let actualGateboxData = gateboxResponse;
+        if (gateboxRawResponse.data && typeof gateboxRawResponse.data === 'object') {
+          actualGateboxData = gateboxRawResponse.data;
+        } else if (gateboxRawResponse.result && typeof gateboxRawResponse.result === 'object') {
+          actualGateboxData = gateboxRawResponse.result;
+        }
         
         // Tentar extrair código PIX de várias fontes possíveis
         const pixCode = (
@@ -91,6 +101,10 @@ export default function Depositar() {
           gateboxResponse.qr_code ||
           gateboxResponse.pix_code ||
           gateboxResponse.code ||
+          gateboxResponse.qrCodeString ||
+          actualGateboxData.qrCode ||
+          actualGateboxData.pixCode ||
+          actualGateboxData.emv ||
           ''
         );
         
@@ -102,6 +116,10 @@ export default function Depositar() {
           gateboxResponse.qr_code_base64 ||
           gateboxResponse.qrCodeBase64Image ||
           gateboxResponse.qrCodeImage ||
+          gateboxResponse.qrCodeImageBase64 ||
+          actualGateboxData.qrCodeBase64 ||
+          actualGateboxData.base64 ||
+          actualGateboxData.qrCodeBase64Image ||
           ''
         );
         
