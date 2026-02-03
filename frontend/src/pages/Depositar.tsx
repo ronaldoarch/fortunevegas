@@ -68,14 +68,51 @@ export default function Depositar() {
       const data = await response.json();
 
       if (response.ok) {
+        // Log para debug
+        console.log('Deposit Response:', data);
+        
         // Extrair dados do PIX da resposta
         const metadata = typeof data.metadata_json === 'string' 
           ? JSON.parse(data.metadata_json) 
           : data.metadata_json || {};
         
+        console.log('Parsed Metadata:', metadata);
+        
         const gateboxResponse = metadata.gatebox_response || {};
-        const pixCode = metadata.pix_code || gateboxResponse.qrCode || gateboxResponse.pixCode || gateboxResponse.emv || '';
-        const pixQrCodeBase64 = metadata.pix_qr_code_base64 || gateboxResponse.qrCodeBase64 || gateboxResponse.base64 || '';
+        console.log('Gatebox Response:', gateboxResponse);
+        
+        // Tentar extrair código PIX de várias fontes possíveis
+        const pixCode = (
+          metadata.pix_code || 
+          metadata.pix_qr_code ||
+          gateboxResponse.qrCode || 
+          gateboxResponse.pixCode || 
+          gateboxResponse.emv ||
+          gateboxResponse.qr_code ||
+          gateboxResponse.pix_code ||
+          gateboxResponse.code ||
+          ''
+        );
+        
+        // Tentar extrair QR Code Base64 de várias fontes possíveis
+        const pixQrCodeBase64 = (
+          metadata.pix_qr_code_base64 ||
+          gateboxResponse.qrCodeBase64 || 
+          gateboxResponse.base64 ||
+          gateboxResponse.qr_code_base64 ||
+          gateboxResponse.qrCodeBase64Image ||
+          gateboxResponse.qrCodeImage ||
+          ''
+        );
+        
+        console.log('Extracted PIX Code:', pixCode ? pixCode.substring(0, 50) + '...' : 'EMPTY');
+        console.log('Extracted QR Code Base64:', pixQrCodeBase64 ? 'Yes' : 'No');
+        
+        if (!pixCode && !pixQrCodeBase64) {
+          console.error('No PIX data found in response:', { metadata, gateboxResponse });
+          setError('Erro: Dados do PIX não encontrados na resposta. Verifique os logs do console.');
+          return;
+        }
         
         setPixData({
           qr_code: pixCode,

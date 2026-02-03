@@ -157,19 +157,54 @@ async def create_pix_deposit(
     
     # Criar registro de depósito
     # A Gatebox retorna campos diferentes - ajustar conforme resposta real da API
+    # Log para debug
+    print(f"Gatebox PIX Response: {json.dumps(pix_response, indent=2)}")
+    
+    # Extrair dados do PIX da resposta Gatebox
+    # Tentar diferentes possíveis campos que a Gatebox pode retornar
+    pix_code = (
+        pix_response.get("qrCode") or 
+        pix_response.get("pixCode") or 
+        pix_response.get("emv") or 
+        pix_response.get("qr_code") or
+        pix_response.get("pix_code") or
+        pix_response.get("code") or
+        ""
+    )
+    
+    pix_qr_code_base64 = (
+        pix_response.get("qrCodeBase64") or 
+        pix_response.get("base64") or 
+        pix_response.get("qr_code_base64") or
+        pix_response.get("qrCodeBase64Image") or
+        pix_response.get("qrCodeImage") or
+        ""
+    )
+    
+    transaction_id_gatebox = (
+        pix_response.get("transactionId") or 
+        pix_response.get("id") or 
+        pix_response.get("transaction_id") or
+        ""
+    )
+    
+    print(f"Extracted PIX Code: {pix_code[:50]}...")
+    print(f"Extracted QR Code Base64: {'Yes' if pix_qr_code_base64 else 'No'}")
+    print(f"Extracted Transaction ID: {transaction_id_gatebox}")
+    
     deposit = Deposit(
         user_id=user.id,
         gateway_id=gateway.id,
         amount=deposit_data.amount,
         status=TransactionStatus.PENDING,
-        transaction_id=str(uuid.uuid4()),
+        transaction_id=transaction_id_gatebox or str(uuid.uuid4()),
         external_id=external_id,
         metadata_json=json.dumps({
-            "pix_code": pix_response.get("qrCode") or pix_response.get("pixCode") or pix_response.get("emv"),
-            "pix_qr_code": pix_response.get("qrCode") or pix_response.get("pixCode") or pix_response.get("emv"),
-            "pix_qr_code_base64": pix_response.get("qrCodeBase64") or pix_response.get("base64"),
-            "transaction_id": pix_response.get("transactionId") or pix_response.get("id"),
-            "end_to_end": pix_response.get("endToEnd"),
+            "pix_code": pix_code,
+            "pix_qr_code": pix_code,
+            "pix_qr_code_base64": pix_qr_code_base64,
+            "transaction_id": transaction_id_gatebox,
+            "end_to_end": pix_response.get("endToEnd") or pix_response.get("end_to_end"),
             "external_id": external_id,
             "gatebox_response": pix_response
         })
