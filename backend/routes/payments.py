@@ -178,8 +178,9 @@ async def create_pix_deposit(
     print(f"Gatebox PIX Response (actual): {json.dumps(actual_response, indent=2)}")
     
     # Extrair dados do PIX da resposta Gatebox
-    # Tentar diferentes possíveis campos que a Gatebox pode retornar
+    # A Gatebox retorna o código PIX no campo "key"
     pix_code = (
+        actual_response.get("key") or  # Campo principal da Gatebox
         actual_response.get("qrCode") or 
         actual_response.get("pixCode") or 
         actual_response.get("emv") or 
@@ -190,6 +191,8 @@ async def create_pix_deposit(
         ""
     )
     
+    # A Gatebox pode não retornar QR Code Base64 diretamente
+    # Vamos tentar encontrar ou gerar depois se necessário
     pix_qr_code_base64 = (
         actual_response.get("qrCodeBase64") or 
         actual_response.get("base64") or 
@@ -197,6 +200,7 @@ async def create_pix_deposit(
         actual_response.get("qrCodeBase64Image") or
         actual_response.get("qrCodeImage") or
         actual_response.get("qrCodeImageBase64") or
+        actual_response.get("qrCode") or  # Pode ser base64 também
         ""
     )
     

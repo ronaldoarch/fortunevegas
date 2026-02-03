@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ArrowLeft, Wallet, Copy, Check } from 'lucide-react';
+import QRCode from 'qrcode';
 
 // Backend FastAPI - usa variável de ambiente ou fallback para localhost
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -92,9 +93,11 @@ export default function Depositar() {
         }
         
         // Tentar extrair código PIX de várias fontes possíveis
+        // A Gatebox retorna o código PIX no campo "key"
         const pixCode = (
           metadata.pix_code || 
           metadata.pix_qr_code ||
+          gateboxResponse.key ||  // Campo principal da Gatebox
           gateboxResponse.qrCode || 
           gateboxResponse.pixCode || 
           gateboxResponse.emv ||
@@ -102,6 +105,7 @@ export default function Depositar() {
           gateboxResponse.pix_code ||
           gateboxResponse.code ||
           gateboxResponse.qrCodeString ||
+          actualGateboxData.key ||  // Campo principal da Gatebox
           actualGateboxData.qrCode ||
           actualGateboxData.pixCode ||
           actualGateboxData.emv ||
@@ -126,15 +130,35 @@ export default function Depositar() {
         console.log('Extracted PIX Code:', pixCode ? pixCode.substring(0, 50) + '...' : 'EMPTY');
         console.log('Extracted QR Code Base64:', pixQrCodeBase64 ? 'Yes' : 'No');
         
-        if (!pixCode && !pixQrCodeBase64) {
+        if (!pixCode) {
           console.error('No PIX data found in response:', { metadata, gateboxResponse });
           setError('Erro: Dados do PIX não encontrados na resposta. Verifique os logs do console.');
           return;
         }
         
+        // Se não houver QR Code Base64, gerar a partir do código PIX
+        let finalQrCodeBase64 = pixQrCodeBase64;
+        if (!finalQrCodeBase64 && pixCode) {
+          try {
+            // Gerar QR Code em base64 a partir do código PIX
+            finalQrCodeBase64 = await QRCode.toDataURL(pixCode, {
+              width: 300,
+              margin: 2,
+              color: {
+                dark: '#000000',
+                light: '#FFFFFF'
+              }
+            });
+            console.log('QR Code generated from PIX code');
+          } catch (err) {
+            console.error('Error generating QR Code:', err);
+            // Continuar mesmo sem QR Code - o código PIX ainda pode ser copiado
+          }
+        }
+        
         setPixData({
           qr_code: pixCode,
-          qr_code_base64: pixQrCodeBase64,
+          qr_code_base64: finalQrCodeBase64,
           transaction_id: data.transaction_id || ''
         });
       } else {
