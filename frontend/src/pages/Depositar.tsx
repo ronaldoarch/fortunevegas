@@ -163,20 +163,16 @@ export default function Depositar() {
         
         // Garantir que não há prefixo duplicado
         if (finalQrCodeBase64) {
-          // Se começa com data:image/png;base64,data:image/png;base64 (duplicado), remover o primeiro
-          if (finalQrCodeBase64.includes('data:image/png;base64,data:image/png;base64,')) {
-            // Remover apenas o primeiro prefixo duplicado
-            finalQrCodeBase64 = finalQrCodeBase64.replace(/^data:image\/png;base64,/, '');
-            // Garantir que tem o prefixo correto
-            if (!finalQrCodeBase64.startsWith('data:')) {
-              finalQrCodeBase64 = 'data:image/png;base64,' + finalQrCodeBase64;
-            }
-            console.log('Fixed duplicate prefix in QR Code');
-          }
+          // Normalizar: remover todos os prefixos e adicionar apenas um
+          const base64Data = finalQrCodeBase64.replace(/^data:image\/png;base64,+/g, '');
+          // Garantir que tem apenas um prefixo correto
+          finalQrCodeBase64 = 'data:image/png;base64,' + base64Data;
+          console.log('Normalized QR Code Base64');
         }
         
         console.log('Final QR Code Base64 (first 100 chars):', finalQrCodeBase64 ? finalQrCodeBase64.substring(0, 100) : 'EMPTY');
         console.log('Final QR Code starts with data:', finalQrCodeBase64 ? finalQrCodeBase64.startsWith('data:') : false);
+        console.log('Final QR Code has duplicate prefix:', finalQrCodeBase64 ? finalQrCodeBase64.includes('data:image/png;base64,data:image/png;base64,') : false);
         
         setPixData({
           qr_code: pixCode,
