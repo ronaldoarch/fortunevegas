@@ -135,7 +135,13 @@ async def create_pix_deposit(
     )
     
     # Verificar se houve erro na resposta da Gatebox
-    if not pix_response or pix_response.get("error"):
+    if not pix_response:
+        raise HTTPException(
+            status_code=502,
+            detail="Sem resposta do gateway PIX"
+        )
+    
+    if pix_response.get("error"):
         # Extrair mensagem de erro específica da Gatebox
         if pix_response and pix_response.get("error"):
             error_detail = pix_response.get("detail", "Erro desconhecido")
@@ -156,41 +162,59 @@ async def create_pix_deposit(
         )
     
     # Criar registro de depósito
-    # A Gatebox retorna campos diferentes - ajustar conforme resposta real da API
+    # A Gatebox pode retornar dados em diferentes estruturas
+    # Verificar se há um campo "data" ou similar que contenha a resposta real
+    actual_response = pix_response
+    if isinstance(pix_response, dict):
+        # Verificar se há um campo "data" que contenha a resposta real
+        if "data" in pix_response and isinstance(pix_response["data"], dict):
+            actual_response = pix_response["data"]
+        # Verificar se há um campo "result" que contenha a resposta real
+        elif "result" in pix_response and isinstance(pix_response["result"], dict):
+            actual_response = pix_response["result"]
+    
     # Log para debug
-    print(f"Gatebox PIX Response: {json.dumps(pix_response, indent=2)}")
+    print(f"Gatebox PIX Response (raw): {json.dumps(pix_response, indent=2)}")
+    print(f"Gatebox PIX Response (actual): {json.dumps(actual_response, indent=2)}")
     
     # Extrair dados do PIX da resposta Gatebox
     # Tentar diferentes possíveis campos que a Gatebox pode retornar
     pix_code = (
-        pix_response.get("qrCode") or 
-        pix_response.get("pixCode") or 
-        pix_response.get("emv") or 
-        pix_response.get("qr_code") or
-        pix_response.get("pix_code") or
-        pix_response.get("code") or
+        actual_response.get("qrCode") or 
+        actual_response.get("pixCode") or 
+        actual_response.get("emv") or 
+        actual_response.get("qr_code") or
+        actual_response.get("pix_code") or
+        actual_response.get("code") or
+        actual_response.get("qrCodeString") or
         ""
     )
     
     pix_qr_code_base64 = (
-        pix_response.get("qrCodeBase64") or 
-        pix_response.get("base64") or 
-        pix_response.get("qr_code_base64") or
-        pix_response.get("qrCodeBase64Image") or
-        pix_response.get("qrCodeImage") or
+        actual_response.get("qrCodeBase64") or 
+        actual_response.get("base64") or 
+        actual_response.get("qr_code_base64") or
+        actual_response.get("qrCodeBase64Image") or
+        actual_response.get("qrCodeImage") or
+        actual_response.get("qrCodeImageBase64") or
         ""
     )
     
     transaction_id_gatebox = (
-        pix_response.get("transactionId") or 
-        pix_response.get("id") or 
-        pix_response.get("transaction_id") or
+        actual_response.get("transactionId") or 
+        actual_response.get("id") or 
+        actual_response.get("transaction_id") or
+        actual_response.get("externalId") or
         ""
     )
     
-    print(f"Extracted PIX Code: {pix_code[:50]}...")
-    print(f"Extracted QR Code Base64: {'Yes' if pix_qr_code_base64 else 'No'}")
+    print(f"Extracted PIX Code: {pix_code[:50] if pix_code else 'EMPTY'}...")
+    print(f"Extracted QR Code Base64: {'Yes (' + str(len(pix_qr_code_base64)) + ' chars)' if pix_qr_code_base64 else 'No'}")
     print(f"Extracted Transaction ID: {transaction_id_gatebox}")
+    
+    # Validar se temos pelo menos o código PIX
+    if not pix_code:
+        print(f"WARNING: No PIX code found in response. Full response: {json.dumps(pix_response, indent=2)}")
     
     deposit = Deposit(
         user_id=user.id,
@@ -204,9 +228,10 @@ async def create_pix_deposit(
             "pix_qr_code": pix_code,
             "pix_qr_code_base64": pix_qr_code_base64,
             "transaction_id": transaction_id_gatebox,
-            "end_to_end": pix_response.get("endToEnd") or pix_response.get("end_to_end"),
+            "end_to_end": actual_response.get("endToEnd") or actual_response.get("end_to_end"),
             "external_id": external_id,
-            "gatebox_response": pix_response
+            "gatebox_response": actual_response,
+            "gatebox_raw_response": pix_response  # Manter resposta original para debug
         })
     )
     
