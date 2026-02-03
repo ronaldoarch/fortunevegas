@@ -153,6 +153,7 @@ export default function Depositar() {
             console.log('QR Code generated from PIX code');
             console.log('QR Code starts with data:', finalQrCodeBase64.startsWith('data:'));
             console.log('QR Code length:', finalQrCodeBase64.length);
+            console.log('QR Code first 100 chars:', finalQrCodeBase64.substring(0, 100));
           } catch (err) {
             console.error('Error generating QR Code:', err);
             // Continuar mesmo sem QR Code - o código PIX ainda pode ser copiado
@@ -163,13 +164,19 @@ export default function Depositar() {
         // Garantir que não há prefixo duplicado
         if (finalQrCodeBase64) {
           // Se começa com data:image/png;base64,data:image/png;base64 (duplicado), remover o primeiro
-          if (finalQrCodeBase64.startsWith('data:image/png;base64,data:image/png;base64,')) {
-            finalQrCodeBase64 = finalQrCodeBase64.replace('data:image/png;base64,', '');
-            console.log('Removed duplicate prefix from QR Code');
+          if (finalQrCodeBase64.includes('data:image/png;base64,data:image/png;base64,')) {
+            // Remover apenas o primeiro prefixo duplicado
+            finalQrCodeBase64 = finalQrCodeBase64.replace(/^data:image\/png;base64,/, '');
+            // Garantir que tem o prefixo correto
+            if (!finalQrCodeBase64.startsWith('data:')) {
+              finalQrCodeBase64 = 'data:image/png;base64,' + finalQrCodeBase64;
+            }
+            console.log('Fixed duplicate prefix in QR Code');
           }
         }
         
-        console.log('Final QR Code Base64:', finalQrCodeBase64 ? (finalQrCodeBase64.substring(0, 80) + '...') : 'EMPTY');
+        console.log('Final QR Code Base64 (first 100 chars):', finalQrCodeBase64 ? finalQrCodeBase64.substring(0, 100) : 'EMPTY');
+        console.log('Final QR Code starts with data:', finalQrCodeBase64 ? finalQrCodeBase64.startsWith('data:') : false);
         
         setPixData({
           qr_code: pixCode,
