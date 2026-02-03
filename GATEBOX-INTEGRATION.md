@@ -35,9 +35,22 @@
 
 ## ⚙️ Configuração necessária
 
-### 1. Criar Gateway no Banco de Dados
+### 1. Criar Gateway no Painel Admin
 
-No painel admin, criar um gateway com:
+**Passo a passo:**
+
+1. Acesse o painel Admin do sistema
+2. No menu lateral, clique em **"Gateways"** (ícone de cartão de crédito)
+3. Preencha o formulário:
+   - **Nome do Gateway**: "Gatebox PIX" (ou outro nome de sua preferência)
+   - **Tipo**: Selecione "PIX"
+   - **Username**: Seu username da Gatebox
+   - **Password**: Sua password da Gatebox
+   - **API URL**: `https://api.gatebox.com.br` (ou deixe em branco para usar o padrão)
+   - **Ativo**: Marque a checkbox para ativar o gateway
+4. Clique em **"Criar Gateway"**
+
+**Exemplo de configuração:**
 - **name**: "Gatebox PIX" (ou outro nome)
 - **type**: "pix"
 - **is_active**: `true`
