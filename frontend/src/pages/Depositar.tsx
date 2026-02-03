@@ -150,7 +150,9 @@ export default function Depositar() {
                 light: '#FFFFFF'
               }
             });
-            console.log('QR Code generated from PIX code:', finalQrCodeBase64.substring(0, 50) + '...');
+            console.log('QR Code generated from PIX code');
+            console.log('QR Code starts with data:', finalQrCodeBase64.startsWith('data:'));
+            console.log('QR Code length:', finalQrCodeBase64.length);
           } catch (err) {
             console.error('Error generating QR Code:', err);
             // Continuar mesmo sem QR Code - o código PIX ainda pode ser copiado
@@ -158,7 +160,16 @@ export default function Depositar() {
           }
         }
         
-        console.log('Final QR Code Base64:', finalQrCodeBase64 ? (finalQrCodeBase64.substring(0, 50) + '...') : 'EMPTY');
+        // Garantir que não há prefixo duplicado
+        if (finalQrCodeBase64) {
+          // Se começa com data:image/png;base64,data:image/png;base64 (duplicado), remover o primeiro
+          if (finalQrCodeBase64.startsWith('data:image/png;base64,data:image/png;base64,')) {
+            finalQrCodeBase64 = finalQrCodeBase64.replace('data:image/png;base64,', '');
+            console.log('Removed duplicate prefix from QR Code');
+          }
+        }
+        
+        console.log('Final QR Code Base64:', finalQrCodeBase64 ? (finalQrCodeBase64.substring(0, 80) + '...') : 'EMPTY');
         
         setPixData({
           qr_code: pixCode,
@@ -286,16 +297,15 @@ export default function Depositar() {
             {pixData.qr_code_base64 && (
               <div className="bg-white p-4 rounded-lg mb-6 flex justify-center">
                 <img 
-                  src={
-                    pixData.qr_code_base64.startsWith('data:') 
-                      ? pixData.qr_code_base64 
-                      : `data:image/png;base64,${pixData.qr_code_base64}`
-                  }
+                  src={pixData.qr_code_base64}
                   alt="QR Code PIX" 
                   className="max-w-xs w-full"
                   onError={(e) => {
-                    console.error('Error loading QR Code image:', e);
-                    console.log('QR Code Base64 value:', pixData.qr_code_base64.substring(0, 100));
+                    console.error('Error loading QR Code image');
+                    console.error('Error event:', e);
+                    console.log('QR Code Base64 value (first 150 chars):', pixData.qr_code_base64.substring(0, 150));
+                    console.log('QR Code starts with data:', pixData.qr_code_base64.startsWith('data:'));
+                    console.log('QR Code length:', pixData.qr_code_base64.length);
                   }}
                 />
               </div>
