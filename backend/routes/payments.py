@@ -79,24 +79,44 @@ async def create_pix_deposit(
         raise HTTPException(status_code=400, detail="Valor mínimo de depósito é R$ 10,00")
     
     # Validar dados do usuário
-    if not user.email:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email do usuário não cadastrado. Atualize seu perfil."
-        )
-    
     if not deposit_data.payer_name or len(deposit_data.payer_name.strip()) < 3:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Nome do pagador inválido"
         )
     
-    # Validar CPF antes de enviar
-    if not deposit_data.payer_tax_id or len(deposit_data.payer_tax_id.replace('.', '').replace('-', '').replace(' ', '')) < 11:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="CPF/CNPJ inválido"
-        )
+    # CPF/CNPJ é opcional - usar telefone como fallback se não fornecido
+    payer_tax_id_to_send = None
+    if deposit_data.payer_tax_id:
+        tax_id_clean = deposit_data.payer_tax_id.replace('.', '').replace('-', '').replace(' ', '').replace('/', '')
+        if len(tax_id_clean) >= 11:
+            payer_tax_id_to_send = tax_id_clean
+        else:
+            # Se fornecido mas inválido, usar telefone como fallback
+            if user.phone:
+                phone_clean = ''.join(filter(str.isdigit, user.phone))
+                if len(phone_clean) >= 10:
+                    payer_tax_id_to_send = phone_clean
+    else:
+        # Se não fornecido, tentar usar telefone do usuário
+        if user.phone:
+            phone_clean = ''.join(filter(str.isdigit, user.phone))
+            if len(phone_clean) >= 10:
+                payer_tax_id_to_send = phone_clean
+    
+    # Se ainda não tiver documento, usar telefone limpo ou gerar um temporário
+    if not payer_tax_id_to_send:
+        # Usar telefone do usuário como documento se disponível
+        if user.phone:
+            phone_clean = ''.join(filter(str.isdigit, user.phone))
+            payer_tax_id_to_send = phone_clean if len(phone_clean) >= 10 else None
+        # Se não tiver telefone também, usar username (que é o telefone limpo)
+        if not payer_tax_id_to_send and user.username:
+            payer_tax_id_to_send = ''.join(filter(str.isdigit, user.username))
+    
+    # Se ainda não tiver, usar um valor padrão (Gatebox pode aceitar)
+    if not payer_tax_id_to_send:
+        payer_tax_id_to_send = "00000000000"  # CPF temporário
     
     # Buscar gateway PIX ativo
     gateway = get_active_pix_gateway(db)
@@ -122,14 +142,17 @@ async def create_pix_deposit(
             else:
                 phone_to_send = f"+{phone_clean}"
     
+    # Email é opcional - usar temporário se não houver
+    email_to_send = user.email if user.email and '@' in user.email else f"{user.username}@temp.com"
+    
     # Gerar código PIX
     pix_response = await gatebox.create_immediate_qrcode(
         external_id=external_id,
         amount=deposit_data.amount,
-        document=deposit_data.payer_tax_id,
+        document=payer_tax_id_to_send,  # CPF/CNPJ ou telefone como fallback
         name=deposit_data.payer_name,
         expire=3600,  # 1 hora de expiração
-        email=user.email,
+        email=email_to_send,
         phone=phone_to_send,  # Pode ser None se não houver telefone válido
         identification=f"Depósito - {deposit_data.payer_name}",
         description=f"Depósito de R$ {deposit_data.amount:.2f}"

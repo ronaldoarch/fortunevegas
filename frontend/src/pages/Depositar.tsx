@@ -61,8 +61,8 @@ export default function Depositar() {
         },
         body: JSON.stringify({
           amount: amountValue,
-          payer_name: user.username || user.email,
-          payer_tax_id: user.cpf || ''
+          payer_name: user.username || 'Usuário',
+          payer_tax_id: user.cpf || user.phone || undefined  // Opcional - backend usará telefone como fallback
         })
       });
 

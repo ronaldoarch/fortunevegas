@@ -142,7 +142,7 @@ class DepositResponse(DepositBase):
 class DepositPixRequest(BaseModel):
     amount: float
     payer_name: str
-    payer_tax_id: str
+    payer_tax_id: Optional[str] = None
 
 
 # Withdrawal Schemas
