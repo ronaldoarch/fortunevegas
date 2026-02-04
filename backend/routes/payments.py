@@ -94,10 +94,10 @@ async def create_pix_deposit(
         if len(tax_id_clean) == 11 or len(tax_id_clean) == 14:
             payer_tax_id_to_send = tax_id_clean
     
-    # Se não fornecido ou inválido, usar CPF temporário válido para testes
-    # CPF 00000000000 é válido para testes em alguns sistemas
+    # Se não fornecido ou inválido, usar CPF válido conhecido para testes
+    # CPF 11144477735 é um CPF válido conhecido usado para testes
     if not payer_tax_id_to_send:
-        payer_tax_id_to_send = "00000000000"
+        payer_tax_id_to_send = "11144477735"
     
     # Buscar gateway PIX ativo
     gateway = get_active_pix_gateway(db)
