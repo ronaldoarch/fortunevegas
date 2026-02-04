@@ -5,10 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from typing import Optional
 from database import get_db
-from models import User, Deposit, Withdrawal, Gateway, TransactionStatus
+from models import User, Deposit, Withdrawal, Gateway, TransactionStatus, WebhookEventType
 from gatebox_api import GateboxAPI
 from schemas import DepositResponse, WithdrawalResponse, DepositPixRequest
 from dependencies import get_current_user
+from webhook_dispatcher import dispatch_webhook
 from datetime import datetime
 import json
 import uuid
@@ -508,6 +509,23 @@ async def webhook_pix_cashout(request: Request, db: Session = Depends(get_db)):
         withdrawal.metadata_json = json.dumps(metadata)
         
         db.commit()
+        
+        # Disparar webhooks configurados para PIX_PAY_OUT
+        await dispatch_webhook(
+            db=db,
+            event_type=WebhookEventType.PIX_PAY_OUT,
+            payload={
+                "event_type": "PIX_PAY_OUT",
+                "withdrawal_id": withdrawal.id,
+                "user_id": withdrawal.user_id,
+                "amount": withdrawal.amount,
+                "status": withdrawal.status.value,
+                "transaction_id": withdrawal.transaction_id,
+                "external_id": withdrawal.external_id,
+                "end_to_end": end_to_end,
+                "gatebox_data": data
+            }
+        )
         
         return {"status": "ok", "message": "Webhook processado com sucesso"}
     
