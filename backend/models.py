@@ -131,7 +131,8 @@ class FTDSettings(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     pass_rate = Column(Float, default=0.0, nullable=False)  # Taxa de passagem padrão
-    min_amount = Column(Float, default=0.0, nullable=False)
+    min_amount = Column(Float, default=0.0, nullable=False)  # Depósito mínimo
+    min_withdrawal = Column(Float, default=0.0, nullable=False)  # Saque mínimo
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

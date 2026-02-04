@@ -375,7 +375,7 @@ async def get_ftd_settings(
     settings = db.query(FTDSettings).filter(FTDSettings.is_active == True).first()
     if not settings:
         # Create default settings
-        settings = FTDSettings(pass_rate=0.0, min_amount=0.0, is_active=True)
+        settings = FTDSettings(pass_rate=0.0, min_amount=0.0, min_withdrawal=0.0, is_active=True)
         db.add(settings)
         db.commit()
         db.refresh(settings)

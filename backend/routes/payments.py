@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from typing import Optional
 from database import get_db
-from models import User, Deposit, Withdrawal, Gateway, TransactionStatus, WebhookEventType
+from models import User, Deposit, Withdrawal, Gateway, TransactionStatus, FTDSettings, WebhookEventType
 from gatebox_api import GateboxAPI
 from schemas import DepositResponse, WithdrawalResponse, DepositPixRequest
 from dependencies import get_current_user
@@ -75,8 +75,14 @@ async def create_pix_deposit(
     if deposit_data.amount <= 0:
         raise HTTPException(status_code=400, detail="Valor deve ser maior que zero")
     
-    if deposit_data.amount < 10:
-        raise HTTPException(status_code=400, detail="Valor mínimo de depósito é R$ 10,00")
+    # Buscar configurações FTD para validar depósito mínimo
+    ftd_settings = db.query(FTDSettings).filter(FTDSettings.is_active == True).first()
+    min_deposit = 10.0  # Valor padrão
+    if ftd_settings and ftd_settings.min_amount > 0:
+        min_deposit = ftd_settings.min_amount
+    
+    if deposit_data.amount < min_deposit:
+        raise HTTPException(status_code=400, detail=f"Valor mínimo de depósito é R$ {min_deposit:.2f}")
     
     # Validar dados do usuário
     if not deposit_data.payer_name or len(deposit_data.payer_name.strip()) < 3:
@@ -279,6 +285,15 @@ async def create_pix_withdrawal(
     
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Valor deve ser maior que zero")
+    
+    # Buscar configurações FTD para validar saque mínimo
+    ftd_settings = db.query(FTDSettings).filter(FTDSettings.is_active == True).first()
+    min_withdrawal = 10.0  # Valor padrão
+    if ftd_settings and ftd_settings.min_withdrawal > 0:
+        min_withdrawal = ftd_settings.min_withdrawal
+    
+    if amount < min_withdrawal:
+        raise HTTPException(status_code=400, detail=f"Valor mínimo de saque é R$ {min_withdrawal:.2f}")
     
     # Buscar gateway PIX ativo
     gateway = get_active_pix_gateway(db)

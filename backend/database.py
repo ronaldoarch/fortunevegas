@@ -161,6 +161,16 @@ def run_migrations():
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_webhooks_event_type ON webhooks(event_type)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_webhooks_is_active ON webhooks(is_active)"))
             
+            # 9. Adicionar coluna min_withdrawal em ftd_settings (se não existir)
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'ftd_settings' AND column_name = 'min_withdrawal'
+            """))
+            if result.fetchone() is None:
+                conn.execute(text("ALTER TABLE ftd_settings ADD COLUMN min_withdrawal FLOAT NOT NULL DEFAULT 0.0"))
+                print("✓ Added min_withdrawal column to ftd_settings")
+            
             print("✓ Migrations executed successfully")
     except Exception as e:
         # Ignora erros de "already exists" ou constraints duplicadas
