@@ -62,7 +62,7 @@ export default function Depositar() {
         body: JSON.stringify({
           amount: amountValue,
           payer_name: user.username || 'Usuário',
-          payer_tax_id: user.cpf || user.phone || undefined  // Opcional - backend usará telefone como fallback
+          payer_tax_id: user.cpf || undefined  // Opcional - só enviar CPF válido, não usar telefone
         })
       });
 
