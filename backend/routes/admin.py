@@ -375,7 +375,7 @@ async def get_ftd_settings(
     settings = db.query(FTDSettings).filter(FTDSettings.is_active == True).first()
     if not settings:
         # Create default settings
-        settings = FTDSettings(pass_rate=0.0, min_amount=0.0, min_withdrawal=0.0, is_active=True)
+        settings = FTDSettings(pass_rate=0.0, min_amount=0.0, max_amount=0.0, min_withdrawal=0.0, is_active=True)
         db.add(settings)
         db.commit()
         db.refresh(settings)
@@ -394,6 +394,8 @@ async def update_ftd_settings(
         # Criar novo com pass_rate padrão 0.0
         settings_data_dict = settings_data.model_dump()
         settings_data_dict['pass_rate'] = 0.0  # Manter pass_rate como 0.0 por padrão
+        if 'max_amount' not in settings_data_dict:
+            settings_data_dict['max_amount'] = 0.0  # Sem limite por padrão
         settings = FTDSettings(**settings_data_dict)
         db.add(settings)
     else:

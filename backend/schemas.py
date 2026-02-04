@@ -206,6 +206,7 @@ class FTDResponse(FTDBase):
 # FTD Settings Schemas
 class FTDSettingsBase(BaseModel):
     min_amount: float = 0.0  # Depósito mínimo
+    max_amount: float = 0.0  # Depósito máximo (0 = sem limite)
     min_withdrawal: float = 0.0  # Saque mínimo
     is_active: bool = True
 

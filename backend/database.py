@@ -171,6 +171,16 @@ def run_migrations():
                 conn.execute(text("ALTER TABLE ftd_settings ADD COLUMN min_withdrawal FLOAT NOT NULL DEFAULT 0.0"))
                 print("✓ Added min_withdrawal column to ftd_settings")
             
+            # 10. Adicionar coluna max_amount em ftd_settings (se não existir)
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'ftd_settings' AND column_name = 'max_amount'
+            """))
+            if result.fetchone() is None:
+                conn.execute(text("ALTER TABLE ftd_settings ADD COLUMN max_amount FLOAT NOT NULL DEFAULT 0.0"))
+                print("✓ Added max_amount column to ftd_settings")
+            
             print("✓ Migrations executed successfully")
     except Exception as e:
         # Ignora erros de "already exists" ou constraints duplicadas

@@ -19,6 +19,25 @@ router = APIRouter(prefix="/api/public/payments", tags=["payments"])
 webhook_router = APIRouter(prefix="/api/webhooks", tags=["webhooks"])
 
 
+@router.get("/settings")
+async def get_payment_settings(db: Session = Depends(get_db)):
+    """
+    Retorna configurações de pagamento (mínimos e máximos) para uso público
+    """
+    ftd_settings = db.query(FTDSettings).filter(FTDSettings.is_active == True).first()
+    if not ftd_settings:
+        return {
+            "min_amount": 10.0,
+            "max_amount": 0.0,
+            "min_withdrawal": 10.0
+        }
+    return {
+        "min_amount": ftd_settings.min_amount if ftd_settings.min_amount > 0 else 10.0,
+        "max_amount": ftd_settings.max_amount,
+        "min_withdrawal": ftd_settings.min_withdrawal if ftd_settings.min_withdrawal > 0 else 10.0
+    }
+
+
 def get_active_pix_gateway(db: Session) -> Gateway:
     """Busca gateway PIX ativo"""
     gateway = db.query(Gateway).filter(
@@ -75,14 +94,21 @@ async def create_pix_deposit(
     if deposit_data.amount <= 0:
         raise HTTPException(status_code=400, detail="Valor deve ser maior que zero")
     
-    # Buscar configurações FTD para validar depósito mínimo
+    # Buscar configurações FTD para validar depósito mínimo e máximo
     ftd_settings = db.query(FTDSettings).filter(FTDSettings.is_active == True).first()
     min_deposit = 10.0  # Valor padrão
-    if ftd_settings and ftd_settings.min_amount > 0:
-        min_deposit = ftd_settings.min_amount
+    max_deposit = 0.0  # 0 = sem limite
+    if ftd_settings:
+        if ftd_settings.min_amount > 0:
+            min_deposit = ftd_settings.min_amount
+        if ftd_settings.max_amount > 0:
+            max_deposit = ftd_settings.max_amount
     
     if deposit_data.amount < min_deposit:
         raise HTTPException(status_code=400, detail=f"Valor mínimo de depósito é R$ {min_deposit:.2f}")
+    
+    if max_deposit > 0 and deposit_data.amount > max_deposit:
+        raise HTTPException(status_code=400, detail=f"Valor máximo de depósito é R$ {max_deposit:.2f}")
     
     # Validar dados do usuário
     if not deposit_data.payer_name or len(deposit_data.payer_name.strip()) < 3:

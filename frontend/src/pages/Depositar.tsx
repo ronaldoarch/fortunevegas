@@ -19,12 +19,21 @@ export default function Depositar() {
     transaction_id: string;
   } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [settings, setSettings] = useState({ min_amount: 10.0, max_amount: 0.0 });
 
   useEffect(() => {
     if (!token || !user) {
       navigate('/conta');
       return;
     }
+    // Carregar configurações de pagamento
+    fetch(`${API_URL}/api/public/payments/settings`)
+      .then(res => res.json())
+      .then(data => setSettings(data))
+      .catch(() => {
+        // Usar valores padrão em caso de erro
+        setSettings({ min_amount: 10.0, max_amount: 0.0 });
+      });
   }, [token, user, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -41,8 +50,14 @@ export default function Depositar() {
         return;
       }
 
-      if (amountValue < 10) {
-        setError('Valor mínimo de depósito é R$ 10,00');
+      if (amountValue < settings.min_amount) {
+        setError(`Valor mínimo de depósito é R$ ${settings.min_amount.toFixed(2)}`);
+        setLoading(false);
+        return;
+      }
+
+      if (settings.max_amount > 0 && amountValue > settings.max_amount) {
+        setError(`Valor máximo de depósito é R$ ${settings.max_amount.toFixed(2)}`);
         setLoading(false);
         return;
       }
@@ -257,7 +272,9 @@ export default function Depositar() {
 
               <div>
                 <label className="block text-gray-300 text-sm mb-2">
-                  Valor do Depósito (mínimo R$ 10,00)
+                  Valor do Depósito {settings.max_amount > 0 
+                    ? `(mínimo R$ ${settings.min_amount.toFixed(2)} e máximo R$ ${settings.max_amount.toFixed(2)})`
+                    : `(mínimo R$ ${settings.min_amount.toFixed(2)})`}
                 </label>
                 <div className="relative">
                   <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">R$</span>

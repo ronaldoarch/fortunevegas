@@ -20,12 +20,21 @@ export default function Sacar() {
     transaction_id: string;
     amount: number;
   } | null>(null);
+  const [settings, setSettings] = useState({ min_withdrawal: 10.0 });
 
   useEffect(() => {
     if (!token || !user) {
       navigate('/conta');
       return;
     }
+    // Carregar configurações de pagamento
+    fetch(`${API_URL}/api/public/payments/settings`)
+      .then(res => res.json())
+      .then(data => setSettings({ min_withdrawal: data.min_withdrawal }))
+      .catch(() => {
+        // Usar valores padrão em caso de erro
+        setSettings({ min_withdrawal: 10.0 });
+      });
   }, [token, user, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -43,8 +52,8 @@ export default function Sacar() {
         return;
       }
 
-      if (amountValue < 10) {
-        setError('Valor mínimo de saque é R$ 10,00');
+      if (amountValue < settings.min_withdrawal) {
+        setError(`Valor mínimo de saque é R$ ${settings.min_withdrawal.toFixed(2)}`);
         setLoading(false);
         return;
       }
@@ -190,7 +199,7 @@ export default function Sacar() {
 
               <div>
                 <label className="block text-gray-300 text-sm mb-2">
-                  Valor do Saque (mínimo R$ 10,00)
+                  Valor do Saque (mínimo R$ {settings.min_withdrawal.toFixed(2)})
                 </label>
                 <div className="relative">
                   <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">R$</span>
