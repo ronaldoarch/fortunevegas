@@ -379,6 +379,207 @@ async def create_pix_withdrawal(
 
 # ========== WEBHOOKS ==========
 
+@webhook_router.post("/gatebox")
+async def webhook_gatebox(request: Request, db: Session = Depends(get_db)):
+    """
+    Webhook único para receber todas as notificações da Gatebox
+    Esta é a URL que deve ser configurada no painel da Gatebox
+    """
+    try:
+        data = await request.json()
+        print(f"Webhook Gatebox recebido: {json.dumps(data, indent=2)}")
+        
+        # Identificar o tipo de evento
+        event_type = data.get("eventType") or data.get("event_type") or data.get("type")
+        status_transaction = data.get("status") or data.get("statusTransaction") or data.get("status_transaction")
+        
+        # Se não tiver eventType explícito, tentar identificar pelo contexto
+        if not event_type:
+            # Verificar se é depósito ou saque pelo external_id
+            external_id = data.get("externalId") or data.get("external_id")
+            if external_id:
+                deposit = db.query(Deposit).filter(Deposit.external_id == external_id).first()
+                if deposit:
+                    event_type = "PIX_PAY_IN"
+                else:
+                    withdrawal = db.query(Withdrawal).filter(Withdrawal.external_id == external_id).first()
+                    if withdrawal:
+                        event_type = "PIX_PAY_OUT"
+        
+        # Processar conforme o tipo de evento
+        if event_type in ["PIX_PAY_IN", "pix_pay_in", "cashin", "cash-in"]:
+            return await _process_pix_cashin(data, db)
+        elif event_type in ["PIX_PAY_OUT", "pix_pay_out", "cashout", "cash-out"]:
+            return await _process_pix_cashout(data, db)
+        else:
+            # Tentar processar como depósito ou saque baseado nos dados
+            return await _process_unknown_event(data, db)
+    
+    except Exception as e:
+        print(f"Erro ao processar webhook Gatebox: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro ao processar webhook: {str(e)}")
+
+
+async def _process_pix_cashin(data: dict, db: Session):
+    """Processa webhook de PIX Cash-in (depósito)"""
+    # Buscar gateway PIX ativo
+    gateway = get_active_pix_gateway(db)
+    
+    # Processar webhook
+    external_id = data.get("externalId") or data.get("external_id")
+    transaction_id = data.get("transactionId") or data.get("transaction_id") or data.get("id")
+    status_transaction = data.get("status") or data.get("statusTransaction") or data.get("status_transaction")
+    amount = data.get("amount") or data.get("value")
+    end_to_end = data.get("endToEnd") or data.get("end_to_end")
+    
+    # Buscar depósito pelo external_id
+    deposit = None
+    if external_id:
+        deposit = db.query(Deposit).filter(Deposit.external_id == external_id).first()
+    
+    # Se não encontrou pelo external_id, tentar pelo transaction_id no metadata
+    if not deposit and transaction_id:
+        deposits = db.query(Deposit).filter(
+            Deposit.status == TransactionStatus.PENDING
+        ).all()
+        for d in deposits:
+            metadata = json.loads(d.metadata_json) if d.metadata_json else {}
+            if metadata.get("transaction_id") == transaction_id or metadata.get("end_to_end") == end_to_end:
+                deposit = d
+                break
+    
+    if not deposit:
+        return {"status": "ok", "message": "Depósito não encontrado"}
+    
+    # Atualizar status do depósito
+    status_upper = str(status_transaction).upper() if status_transaction else ""
+    
+    if status_upper in ["PAID", "PAID_OUT", "CONFIRMED", "APPROVED", "SUCCESS"]:
+        if deposit.status != TransactionStatus.APPROVED:
+            deposit.status = TransactionStatus.APPROVED
+            # Adicionar saldo ao usuário
+            user = db.query(User).filter(User.id == deposit.user_id).first()
+            if user:
+                user.balance += deposit.amount
+    elif status_upper in ["CANCELLED", "CANCELED", "REJECTED", "FAILED", "CHARGEBACK"]:
+        if deposit.status == TransactionStatus.APPROVED:
+            # Reverter saldo se já foi aprovado
+            user = db.query(User).filter(User.id == deposit.user_id).first()
+            if user and user.balance >= deposit.amount:
+                user.balance -= deposit.amount
+        deposit.status = TransactionStatus.CANCELLED
+    
+    # Atualizar metadata
+    metadata = json.loads(deposit.metadata_json) if deposit.metadata_json else {}
+    metadata["webhook_data"] = data
+    metadata["webhook_received_at"] = datetime.utcnow().isoformat()
+    deposit.metadata_json = json.dumps(metadata)
+    
+    db.commit()
+    
+    # Disparar webhooks configurados para PIX_PAY_IN
+    await dispatch_webhook(
+        db=db,
+        event_type=WebhookEventType.PIX_PAY_IN,
+        payload={
+            "event_type": "PIX_PAY_IN",
+            "deposit_id": deposit.id,
+            "user_id": deposit.user_id,
+            "amount": deposit.amount,
+            "status": deposit.status.value,
+            "transaction_id": deposit.transaction_id,
+            "external_id": deposit.external_id,
+            "end_to_end": end_to_end,
+            "gatebox_data": data
+        }
+    )
+    
+    return {"status": "ok", "message": "Webhook processado com sucesso"}
+
+
+async def _process_pix_cashout(data: dict, db: Session):
+    """Processa webhook de PIX Cash-out (saque)"""
+    # Buscar gateway PIX ativo
+    gateway = get_active_pix_gateway(db)
+    
+    # Processar webhook
+    external_id = data.get("externalId") or data.get("external_id")
+    transaction_id = data.get("transactionId") or data.get("transaction_id") or data.get("id")
+    status_transaction = data.get("status") or data.get("statusTransaction") or data.get("status_transaction")
+    end_to_end = data.get("endToEnd") or data.get("end_to_end")
+    
+    # Buscar saque pelo external_id
+    withdrawal = None
+    if external_id:
+        withdrawal = db.query(Withdrawal).filter(Withdrawal.external_id == external_id).first()
+    
+    # Se não encontrou pelo external_id, tentar pelo transaction_id no metadata
+    if not withdrawal and transaction_id:
+        withdrawals = db.query(Withdrawal).filter(
+            Withdrawal.status == TransactionStatus.PENDING
+        ).all()
+        for w in withdrawals:
+            metadata = json.loads(w.metadata_json) if w.metadata_json else {}
+            if metadata.get("transaction_id") == transaction_id or metadata.get("end_to_end") == end_to_end:
+                withdrawal = w
+                break
+    
+    if not withdrawal:
+        return {"status": "ok", "message": "Saque não encontrado"}
+    
+    # Atualizar status do saque
+    status_upper = str(status_transaction).upper() if status_transaction else ""
+    
+    if status_upper in ["PAID", "PAID_OUT", "CONFIRMED", "APPROVED", "SUCCESS"]:
+        withdrawal.status = TransactionStatus.APPROVED
+    elif status_upper in ["CANCELLED", "CANCELED", "REJECTED", "FAILED"]:
+        # Reverter saldo se foi cancelado
+        if withdrawal.status == TransactionStatus.PENDING:
+            user = db.query(User).filter(User.id == withdrawal.user_id).first()
+            if user:
+                user.balance += withdrawal.amount
+        withdrawal.status = TransactionStatus.CANCELLED
+    
+    # Atualizar metadata
+    metadata = json.loads(withdrawal.metadata_json) if withdrawal.metadata_json else {}
+    metadata["webhook_data"] = data
+    metadata["webhook_received_at"] = datetime.utcnow().isoformat()
+    withdrawal.metadata_json = json.dumps(metadata)
+    
+    db.commit()
+    
+    # Disparar webhooks configurados para PIX_PAY_OUT
+    await dispatch_webhook(
+        db=db,
+        event_type=WebhookEventType.PIX_PAY_OUT,
+        payload={
+            "event_type": "PIX_PAY_OUT",
+            "withdrawal_id": withdrawal.id,
+            "user_id": withdrawal.user_id,
+            "amount": withdrawal.amount,
+            "status": withdrawal.status.value,
+            "transaction_id": withdrawal.transaction_id,
+            "external_id": withdrawal.external_id,
+            "end_to_end": end_to_end,
+            "gatebox_data": data
+        }
+    )
+    
+    return {"status": "ok", "message": "Webhook processado com sucesso"}
+
+
+async def _process_unknown_event(data: dict, db: Session):
+    """Tenta processar evento desconhecido como depósito ou saque"""
+    # Tentar como depósito primeiro
+    result = await _process_pix_cashin(data, db)
+    if "não encontrado" not in result.get("message", "").lower():
+        return result
+    
+    # Se não encontrou depósito, tentar como saque
+    return await _process_pix_cashout(data, db)
+
+
+# Manter rotas antigas para compatibilidade (deprecated)
 @webhook_router.post("/gatebox/pix-cashin")
 async def webhook_pix_cashin(request: Request, db: Session = Depends(get_db)):
     """

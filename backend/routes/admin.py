@@ -2193,12 +2193,35 @@ async def delete_tracking_config(
 
 # ========== WEBHOOKS ==========
 
+@router.get("/webhook-url")
+async def get_webhook_url(
+    current_user: User = Depends(get_current_admin_user)
+):
+    """
+    Retorna a URL do webhook que deve ser configurada no painel da Gatebox
+    """
+    import os
+    webhook_base_url = os.getenv("WEBHOOK_BASE_URL", "")
+    
+    # Se não tiver variável, tentar construir a partir do request
+    if not webhook_base_url:
+        # Em produção, usar variável de ambiente
+        # Por padrão, assumir que está no mesmo domínio
+        webhook_base_url = "https://api.agenciamidas.com"  # Ajustar conforme necessário
+    
+    webhook_url = f"{webhook_base_url}/api/webhooks/gatebox"
+    return {
+        "webhook_url": webhook_url,
+        "instructions": "Configure esta URL no painel da Gatebox para receber notificações de eventos"
+    }
+
+
 @router.get("/webhooks", response_model=List[WebhookResponse])
 async def list_webhooks(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_admin_user)
 ):
-    """Listar todos os webhooks"""
+    """Listar todos os webhooks externos configurados"""
     webhooks = db.query(Webhook).order_by(Webhook.created_at.desc()).all()
     return webhooks
 
