@@ -86,13 +86,18 @@ async def create_pix_deposit(
         )
     
     # CPF/CNPJ é opcional - só usar se for válido (11 ou 14 dígitos)
+    # Se não fornecido, usar CPF temporário válido para testes (Gatebox pode exigir document)
     payer_tax_id_to_send = None
     if deposit_data.payer_tax_id:
         tax_id_clean = deposit_data.payer_tax_id.replace('.', '').replace('-', '').replace(' ', '').replace('/', '')
         # Validar se é CPF (11 dígitos) ou CNPJ (14 dígitos)
         if len(tax_id_clean) == 11 or len(tax_id_clean) == 14:
             payer_tax_id_to_send = tax_id_clean
-    # Se não fornecido ou inválido, não enviar document (Gatebox aceita sem document)
+    
+    # Se não fornecido ou inválido, usar CPF temporário válido para testes
+    # CPF 00000000000 é válido para testes em alguns sistemas
+    if not payer_tax_id_to_send:
+        payer_tax_id_to_send = "00000000000"
     
     # Buscar gateway PIX ativo
     gateway = get_active_pix_gateway(db)
