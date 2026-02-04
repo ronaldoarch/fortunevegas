@@ -3985,6 +3985,8 @@ function WebhooksTab({ token }: { token: string }) {
 
       {error && <div className="bg-red-500/20 border border-red-500 text-red-200 px-4 py-3 rounded">{error}</div>}
 
+      {loading && <div className="bg-blue-500/20 border border-blue-500 text-blue-200 px-4 py-3 rounded">Carregando URL do webhook...</div>}
+
       <div className="bg-gray-800 rounded-lg p-6">
         <div className="space-y-4">
           <div>

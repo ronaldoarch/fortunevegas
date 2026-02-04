@@ -49,6 +49,12 @@ export default function Sacar() {
         return;
       }
 
+      if (!user) {
+        setError('Usuário não encontrado. Por favor, faça login novamente.');
+        setLoading(false);
+        return;
+      }
+
       if (user.balance < amountValue) {
         setError('Saldo insuficiente para realizar o saque.');
         setLoading(false);
