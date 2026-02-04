@@ -7,7 +7,7 @@ from models import TransactionStatus, UserRole, MediaType
 # User Schemas
 class UserBase(BaseModel):
     username: str
-    email: EmailStr
+    email: Optional[EmailStr] = None
     cpf: Optional[str] = None
     phone: Optional[str] = None
 

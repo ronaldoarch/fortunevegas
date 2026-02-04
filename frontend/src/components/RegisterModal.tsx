@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Eye, EyeOff, Search } from 'lucide-react';
+import { X, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://api.fortunevegas.site';
@@ -17,9 +17,7 @@ export default function RegisterModal({ isOpen, onClose, onSwitchToLogin }: Regi
   const [loading, setLoading] = useState(false);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [formData, setFormData] = useState({
-    cpf: '',
     nome: '',
-    email: '',
     telefone: '',
     senha: '',
     termos: false,
@@ -112,28 +110,6 @@ export default function RegisterModal({ isOpen, onClose, onSwitchToLogin }: Regi
 
         {/* Form */}
         <div className="px-8 pb-8 space-y-4">
-          {/* CPF */}
-          <div>
-            <label className="block text-gray-300 text-sm mb-2">CPF</label>
-            <div className="relative">
-              <input
-                type="text"
-                name="cpf"
-                value={formData.cpf}
-                onChange={handleChange}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 pr-12 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#d4af37] focus:border-transparent transition-all"
-                placeholder="000.000.000-00"
-              />
-              <button
-                type="button"
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
-                aria-label="Verificar CPF"
-              >
-                <Search size={20} />
-              </button>
-            </div>
-          </div>
-
           {/* Nome completo */}
           <div>
             <label className="block text-gray-300 text-sm mb-2">Nome completo</label>
@@ -144,19 +120,7 @@ export default function RegisterModal({ isOpen, onClose, onSwitchToLogin }: Regi
               onChange={handleChange}
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#d4af37] focus:border-transparent transition-all"
               placeholder="Seu nome completo"
-            />
-          </div>
-
-          {/* Email */}
-          <div>
-            <label className="block text-gray-300 text-sm mb-2">E-mail</label>
-            <input
-              type="email"
-              name="email"
-              value={formData.email}
-              onChange={handleChange}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#d4af37] focus:border-transparent transition-all"
-              placeholder="seu@email.com"
+              required
             />
           </div>
 
@@ -174,6 +138,7 @@ export default function RegisterModal({ isOpen, onClose, onSwitchToLogin }: Regi
                 onChange={handleChange}
                 className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#d4af37] focus:border-transparent transition-all"
                 placeholder="(00) 00000-0000"
+                required
               />
             </div>
           </div>
@@ -233,19 +198,24 @@ export default function RegisterModal({ isOpen, onClose, onSwitchToLogin }: Regi
                 setError('Você precisa aceitar os Termos e Condições');
                 return;
               }
-              if (!formData.nome || !formData.email || !formData.senha) {
+              if (!formData.nome || !formData.telefone || !formData.senha) {
                 setError('Preencha todos os campos obrigatórios');
                 return;
               }
               setError('');
               setLoading(true);
               try {
+                // Limpar telefone para usar como username (apenas números)
+                const phoneClean = formData.telefone.replace(/\D/g, '');
+                if (phoneClean.length < 10) {
+                  setError('Telefone inválido. Digite o DDD e o número completo.');
+                  setLoading(false);
+                  return;
+                }
                 await register({
-                  username: formData.nome.toLowerCase().replace(/\s+/g, '_'),
-                  email: formData.email,
+                  username: phoneClean,
                   password: formData.senha,
-                  cpf: formData.cpf || undefined,
-                  phone: formData.telefone || undefined,
+                  phone: phoneClean, // Salvar telefone limpo
                 });
                 onClose();
               } catch (err: any) {

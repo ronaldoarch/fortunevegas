@@ -38,6 +38,14 @@ def authenticate_user(db: Session, username: str, password: str) -> Optional[Use
     # Se não encontrou, tenta por email
     if not user:
         user = db.query(User).filter(User.email == username).first()
+    # Se não encontrou, tenta por telefone (limpar caracteres especiais)
+    if not user:
+        phone_clean = ''.join(filter(str.isdigit, username))
+        if phone_clean:
+            user = db.query(User).filter(User.phone == phone_clean).first()
+            # Se não encontrou com telefone limpo, tentar buscar por username que pode ser o telefone
+            if not user:
+                user = db.query(User).filter(User.username == phone_clean).first()
     if not user:
         return None
     if not verify_password(password, user.password_hash):

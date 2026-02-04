@@ -13,7 +13,7 @@ interface LoginModalProps {
 export default function LoginModal({ isOpen, onClose, onSwitchToRegister }: LoginModalProps) {
   const { login } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
-  const [email, setEmail] = useState('');
+  const [telefone, setTelefone] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -98,16 +98,21 @@ export default function LoginModal({ isOpen, onClose, onSwitchToRegister }: Logi
 
         {/* Form */}
         <div className="px-8 pb-8 space-y-4">
-          {/* Email */}
+          {/* Telefone */}
           <div>
-            <label className="block text-gray-300 text-sm mb-2">Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#d4af37] focus:border-transparent transition-all"
-              placeholder="seu@email.com"
-            />
+            <label className="block text-gray-300 text-sm mb-2">Telefone</label>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center justify-center w-12 h-12 bg-gray-800 border border-gray-700 rounded-lg">
+                <span className="text-xl">🇧🇷</span>
+              </div>
+              <input
+                type="tel"
+                value={telefone}
+                onChange={(e) => setTelefone(e.target.value)}
+                className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#d4af37] focus:border-transparent transition-all"
+                placeholder="(00) 00000-0000"
+              />
+            </div>
           </div>
 
           {/* Password */}
@@ -149,14 +154,16 @@ export default function LoginModal({ isOpen, onClose, onSwitchToRegister }: Logi
           {/* Login button */}
           <button
             onClick={async () => {
-              if (!email || !password) {
+              if (!telefone || !password) {
                 setError('Preencha todos os campos');
                 return;
               }
               setError('');
               setLoading(true);
               try {
-                await login(email, password);
+                // Limpar telefone para usar como username (apenas números)
+                const phoneClean = telefone.replace(/\D/g, '');
+                await login(phoneClean, password);
                 onClose();
               } catch (err: any) {
                 setError(err.message || 'Erro ao fazer login');

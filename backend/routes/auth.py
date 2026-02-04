@@ -19,20 +19,38 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
             detail="Username already registered"
         )
     
-    # Verificar se email já existe
-    existing_user = db.query(User).filter(User.email == user_data.email).first()
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
-        )
+    # Verificar se email já existe (apenas se fornecido)
+    if user_data.email:
+        existing_user = db.query(User).filter(User.email == user_data.email).first()
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered"
+            )
+    
+    # Verificar se telefone já existe (se fornecido)
+    if user_data.phone:
+        phone_clean = ''.join(filter(str.isdigit, user_data.phone))
+        existing_phone = db.query(User).filter(User.phone == phone_clean).first()
+        if existing_phone:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Phone already registered"
+            )
+        # Usar telefone limpo
+        phone_to_save = phone_clean
+    else:
+        phone_to_save = None
+    
+    # Criar email temporário se não fornecido
+    email_to_save = user_data.email if user_data.email else f"{user_data.username}@temp.com"
     
     # Criar novo usuário
     new_user = User(
         username=user_data.username,
-        email=user_data.email,
+        email=email_to_save,
         cpf=user_data.cpf,
-        phone=user_data.phone,
+        phone=phone_to_save,
         password_hash=get_password_hash(user_data.password),
         role=UserRole.USER,
         balance=0.0,
