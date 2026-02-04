@@ -85,38 +85,14 @@ async def create_pix_deposit(
             detail="Nome do pagador inválido"
         )
     
-    # CPF/CNPJ é opcional - usar telefone como fallback se não fornecido
+    # CPF/CNPJ é opcional - só usar se for válido (11 ou 14 dígitos)
     payer_tax_id_to_send = None
     if deposit_data.payer_tax_id:
         tax_id_clean = deposit_data.payer_tax_id.replace('.', '').replace('-', '').replace(' ', '').replace('/', '')
-        if len(tax_id_clean) >= 11:
+        # Validar se é CPF (11 dígitos) ou CNPJ (14 dígitos)
+        if len(tax_id_clean) == 11 or len(tax_id_clean) == 14:
             payer_tax_id_to_send = tax_id_clean
-        else:
-            # Se fornecido mas inválido, usar telefone como fallback
-            if user.phone:
-                phone_clean = ''.join(filter(str.isdigit, user.phone))
-                if len(phone_clean) >= 10:
-                    payer_tax_id_to_send = phone_clean
-    else:
-        # Se não fornecido, tentar usar telefone do usuário
-        if user.phone:
-            phone_clean = ''.join(filter(str.isdigit, user.phone))
-            if len(phone_clean) >= 10:
-                payer_tax_id_to_send = phone_clean
-    
-    # Se ainda não tiver documento, usar telefone limpo ou gerar um temporário
-    if not payer_tax_id_to_send:
-        # Usar telefone do usuário como documento se disponível
-        if user.phone:
-            phone_clean = ''.join(filter(str.isdigit, user.phone))
-            payer_tax_id_to_send = phone_clean if len(phone_clean) >= 10 else None
-        # Se não tiver telefone também, usar username (que é o telefone limpo)
-        if not payer_tax_id_to_send and user.username:
-            payer_tax_id_to_send = ''.join(filter(str.isdigit, user.username))
-    
-    # Se ainda não tiver, usar um valor padrão (Gatebox pode aceitar)
-    if not payer_tax_id_to_send:
-        payer_tax_id_to_send = "00000000000"  # CPF temporário
+    # Se não fornecido ou inválido, não enviar document (Gatebox aceita sem document)
     
     # Buscar gateway PIX ativo
     gateway = get_active_pix_gateway(db)
