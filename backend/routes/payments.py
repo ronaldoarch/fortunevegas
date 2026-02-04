@@ -146,12 +146,13 @@ async def create_pix_deposit(
     email_to_send = user.email if user.email and '@' in user.email else f"{user.username}@temp.com"
     
     # Gerar código PIX
+    # document só será enviado se for CPF/CNPJ válido (11 ou 14 dígitos)
     pix_response = await gatebox.create_immediate_qrcode(
         external_id=external_id,
         amount=deposit_data.amount,
-        document=payer_tax_id_to_send,  # CPF/CNPJ ou telefone como fallback
         name=deposit_data.payer_name,
         expire=3600,  # 1 hora de expiração
+        document=payer_tax_id_to_send,  # Opcional - só enviado se for CPF/CNPJ válido
         email=email_to_send,
         phone=phone_to_send,  # Pode ser None se não houver telefone válido
         identification=f"Depósito - {deposit_data.payer_name}",

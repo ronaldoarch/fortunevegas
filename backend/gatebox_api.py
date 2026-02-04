@@ -148,9 +148,9 @@ class GateboxAPI:
         self,
         external_id: str,
         amount: float,
-        document: str,
         name: str,
         expire: int = 3600,
+        document: Optional[str] = None,
         email: Optional[str] = None,
         phone: Optional[str] = None,
         identification: Optional[str] = None,
@@ -163,9 +163,9 @@ class GateboxAPI:
         Args:
             external_id: ID de conciliação único
             amount: Valor do depósito
-            document: CPF/CNPJ do pagador (sem pontuação)
             name: Nome completo do pagador
             expire: Tempo de expiração em segundos (padrão: 3600 = 1 hora)
+            document: CPF/CNPJ do pagador (opcional, sem pontuação)
             email: Email do pagador (opcional)
             phone: Telefone do pagador (opcional, formato: +5514987654321)
             identification: Descrição a ser exibida no momento do pagamento (opcional)
@@ -176,16 +176,19 @@ class GateboxAPI:
         """
         import re
         
-        # Limpar documento (remover pontuação)
-        document_clean = re.sub(r'[^0-9]', '', document) if document else ""
-        
         payload = {
             "externalId": external_id,
             "amount": amount,
-            "document": document_clean,
             "name": name,
             "expire": expire
         }
+        
+        # Só adicionar document se fornecido e válido (CPF tem 11 dígitos, CNPJ tem 14)
+        if document:
+            document_clean = re.sub(r'[^0-9]', '', document)
+            # Validar se é CPF (11 dígitos) ou CNPJ (14 dígitos)
+            if len(document_clean) == 11 or len(document_clean) == 14:
+                payload["document"] = document_clean
         
         if email:
             payload["email"] = email
