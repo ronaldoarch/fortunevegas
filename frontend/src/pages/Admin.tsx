@@ -1286,7 +1286,7 @@ function IGameWinTab({ token }: { token: string }) {
 }
 
 function SettingsTab({ token }: { token: string }) {
-  const [form, setForm] = useState({ pass_rate: 0, min_amount: 0, min_withdrawal: 0, is_active: true });
+  const [form, setForm] = useState({ min_amount: 0, min_withdrawal: 0, is_active: true });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -1299,7 +1299,6 @@ function SettingsTab({ token }: { token: string }) {
       if (!res.ok) throw new Error('Falha ao carregar configurações');
       const data = await res.json();
       setForm({ 
-        pass_rate: data.pass_rate ?? 0, 
         min_amount: data.min_amount ?? 0, 
         min_withdrawal: data.min_withdrawal ?? 0,
         is_active: data.is_active 
@@ -1327,10 +1326,6 @@ function SettingsTab({ token }: { token: string }) {
       {error && <div className="text-red-400">{error}</div>}
       {loading && <div className="text-sm text-gray-400">Carregando...</div>}
       <div className="grid md:grid-cols-2 gap-3 bg-gray-800/60 p-4 rounded border border-gray-700">
-        <div>
-          <label className="text-sm text-gray-300">Taxa de passagem (%)</label>
-          <input type="number" step="0.01" className="w-full bg-gray-700 rounded px-3 py-2" value={form.pass_rate} onChange={e=>setForm({...form, pass_rate:Number(e.target.value)})}/>
-        </div>
         <div>
           <label className="text-sm text-gray-300">Depósito mínimo</label>
           <input type="number" step="0.01" className="w-full bg-gray-700 rounded px-3 py-2" value={form.min_amount} onChange={e=>setForm({...form, min_amount:Number(e.target.value)})}/>

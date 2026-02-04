@@ -379,6 +379,7 @@ async def get_ftd_settings(
         db.add(settings)
         db.commit()
         db.refresh(settings)
+    # Retornar apenas os campos relevantes (sem pass_rate)
     return settings
 
 
@@ -390,12 +391,17 @@ async def update_ftd_settings(
 ):
     settings = db.query(FTDSettings).filter(FTDSettings.is_active == True).first()
     if not settings:
-        settings = FTDSettings(**settings_data.model_dump())
+        # Criar novo com pass_rate padrão 0.0
+        settings_data_dict = settings_data.model_dump()
+        settings_data_dict['pass_rate'] = 0.0  # Manter pass_rate como 0.0 por padrão
+        settings = FTDSettings(**settings_data_dict)
         db.add(settings)
     else:
+        # Atualizar apenas os campos fornecidos, manter pass_rate se não fornecido
         update_data = settings_data.model_dump(exclude_unset=True)
         for field, value in update_data.items():
             setattr(settings, field, value)
+        # Se pass_rate não foi fornecido, manter o valor atual (ou 0.0)
     
     db.commit()
     db.refresh(settings)
