@@ -428,3 +428,33 @@ class TrackingConfigResponse(TrackingConfigBase):
     
     class Config:
         from_attributes = True
+
+
+# Webhook Schemas
+class WebhookBase(BaseModel):
+    url: str
+    username: Optional[str] = None
+    password: Optional[str] = None
+    event_type: str  # PIX_PAY_IN, PIX_PAY_OUT, etc
+    is_active: bool = True
+
+
+class WebhookCreate(WebhookBase):
+    pass
+
+
+class WebhookUpdate(BaseModel):
+    url: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+    event_type: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class WebhookResponse(WebhookBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True

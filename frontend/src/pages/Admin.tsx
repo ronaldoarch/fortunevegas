@@ -6,7 +6,7 @@ import {
   ArrowDownCircle, Activity, RefreshCw,
   Image as ImageIcon, Home,
   ChevronUp, ChevronDown, Percent, FileText, 
-  Gift, Tag, Gamepad2, Megaphone, HelpCircle, UserCog
+  Gift, Tag, Gamepad2, Megaphone, HelpCircle, UserCog, Webhook
 } from 'lucide-react';
 import type { ThemePalette } from '../utils/themeManager';
 import { applyThemeToDocument } from '../utils/themeManager';
@@ -251,6 +251,12 @@ export default function Admin() {
                 onClick={() => setActiveTab('tracking')}
               />
               <NavSubItem
+                icon={<Webhook />}
+                label="Webhooks"
+                active={activeTab === 'webhooks'}
+                onClick={() => setActiveTab('webhooks')}
+              />
+              <NavSubItem
                 icon={<Tag />}
                 label="Temas"
                 active={activeTab === 'themes'}
@@ -281,6 +287,7 @@ export default function Admin() {
           {activeTab === 'igamewin' && <IGameWinTab token={token || ''} />}
           {activeTab === 'igamewin-providers' && <IGameWinProvidersTab token={token || ''} />}
           {activeTab === 'tracking' && <TrackingTab token={token || ''} />}
+          {activeTab === 'webhooks' && <WebhooksTab token={token || ''} />}
           {activeTab === 'settings' && <SettingsTab token={token || ''} />}
           {activeTab === 'branding' && <BrandingTab token={token || ''} />}
           {activeTab === 'themes' && <ThemesTab token={token || ''} />}
@@ -3922,6 +3929,334 @@ function TrackingTab({ token }: { token: string }) {
                       </button>
                       <button
                         onClick={() => handleDelete(config.id)}
+                        className="text-red-400 hover:text-red-300 text-xs"
+                      >
+                        Deletar
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function WebhooksTab({ token }: { token: string }) {
+  const [webhooks, setWebhooks] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [showModal, setShowModal] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [form, setForm] = useState({
+    url: '',
+    username: '',
+    password: '',
+    event_type: '',
+    is_active: true
+  });
+  const [editingId, setEditingId] = useState<number | null>(null);
+
+  const eventTypes = [
+    'PIX_PAY_IN',
+    'PIX_PAY_OUT',
+    'PIX_REVERSAL',
+    'PIX_REVERSAL_OUT',
+    'PIX_REFUND',
+    'BILLPAYMENT',
+    'CREDIT_CARD_OUT',
+    'CREDIT_CARD_CHARGEBACK',
+    'INFRACTION'
+  ];
+
+  const fetchWebhooks = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch(`${API_URL}/api/admin/webhooks`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error('Falha ao carregar webhooks');
+      setWebhooks(await res.json());
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchWebhooks();
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    setMessage('');
+
+    try {
+      const url = editingId
+        ? `${API_URL}/api/admin/webhooks/${editingId}`
+        : `${API_URL}/api/admin/webhooks`;
+      const method = editingId ? 'PUT' : 'POST';
+
+      const res = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(form)
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.detail || 'Falha ao salvar webhook');
+      }
+
+      setMessage(editingId ? 'Webhook atualizado com sucesso!' : 'Webhook criado com sucesso!');
+      setForm({
+        url: '',
+        username: '',
+        password: '',
+        event_type: '',
+        is_active: true
+      });
+      setEditingId(null);
+      setShowModal(false);
+      await fetchWebhooks();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEdit = (webhook: any) => {
+    setForm({
+      url: webhook.url,
+      username: webhook.username || '',
+      password: '',
+      event_type: webhook.event_type,
+      is_active: webhook.is_active
+    });
+    setEditingId(webhook.id);
+    setShowModal(true);
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('Tem certeza que deseja deletar este webhook?')) return;
+
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/webhooks/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error('Falha ao deletar');
+      setMessage('Webhook deletado com sucesso!');
+      await fetchWebhooks();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetForm = () => {
+    setForm({
+      url: '',
+      username: '',
+      password: '',
+      event_type: '',
+      is_active: true
+    });
+    setEditingId(null);
+    setShowModal(false);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold">Webhooks</h2>
+          <p className="text-gray-400">Configure webhooks para receber notificações de eventos da Gatebox</p>
+        </div>
+        <button
+          onClick={() => {
+            resetForm();
+            setShowModal(true);
+          }}
+          className="bg-[#d4af37] hover:bg-[#ffd700] text-black px-4 py-2 rounded font-semibold flex items-center gap-2"
+        >
+          <Webhook size={18} />
+          Adicionar Webhook
+        </button>
+      </div>
+
+      {error && <div className="bg-red-500/20 border border-red-500 text-red-200 px-4 py-3 rounded">{error}</div>}
+      {message && <div className="bg-green-500/20 border border-green-500 text-green-200 px-4 py-3 rounded">{message}</div>}
+
+      {showModal && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+          <div className="bg-gray-800 rounded-lg w-full max-w-md relative">
+            <button
+              onClick={resetForm}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white"
+            >
+              <X size={24} />
+            </button>
+            
+            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+              <h3 className="text-xl font-bold mb-4">{editingId ? 'Editar' : 'Adicionar'} Webhook</h3>
+              
+              <div>
+                <label className="block text-sm font-medium mb-2">URL *</label>
+                <input
+                  type="url"
+                  value={form.url}
+                  onChange={(e) => setForm({ ...form, url: e.target.value })}
+                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+                  required
+                  placeholder="https://exemplo.com/webhook"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">Usuário</label>
+                <input
+                  type="text"
+                  value={form.username}
+                  onChange={(e) => setForm({ ...form, username: e.target.value })}
+                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+                  placeholder="Username para autenticação HTTP Basic (opcional)"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">Senha</label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={form.password}
+                    onChange={(e) => setForm({ ...form, password: e.target.value })}
+                    className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 pr-10"
+                    placeholder="Password para autenticação HTTP Basic (opcional)"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                  >
+                    {showPassword ? <X size={18} /> : <Activity size={18} />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">Tipo de Evento *</label>
+                <select
+                  value={form.event_type}
+                  onChange={(e) => setForm({ ...form, event_type: e.target.value })}
+                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+                  required
+                >
+                  <option value="">Selecione um tipo</option>
+                  {eventTypes.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="is_active_webhook"
+                  checked={form.is_active}
+                  onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
+                  className="w-4 h-4"
+                />
+                <label htmlFor="is_active_webhook" className="text-sm">Ativo</label>
+              </div>
+
+              <div className="flex gap-2 pt-4">
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="flex-1 bg-[#d4af37] hover:bg-[#ffd700] text-black px-4 py-2 rounded font-semibold disabled:opacity-50"
+                >
+                  {editingId ? 'Atualizar' : 'Adicionar'}
+                </button>
+                <button
+                  type="button"
+                  onClick={resetForm}
+                  className="bg-gray-600 hover:bg-gray-500 px-4 py-2 rounded"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-gray-800 rounded-lg overflow-hidden">
+        <div className="p-4 border-b border-gray-700">
+          <h3 className="text-lg font-semibold">Webhooks Configurados</h3>
+        </div>
+        {loading ? (
+          <div className="p-4 text-center text-gray-400">Carregando...</div>
+        ) : webhooks.length === 0 ? (
+          <div className="p-4 text-center text-gray-400">Nenhum webhook configurado</div>
+        ) : (
+          <table className="w-full">
+            <thead className="bg-gray-900">
+              <tr>
+                <th className="px-4 py-3 text-left">URL</th>
+                <th className="px-4 py-3 text-left">Tipo de Evento</th>
+                <th className="px-4 py-3 text-left">Usuário</th>
+                <th className="px-4 py-3 text-left">Status</th>
+                <th className="px-4 py-3 text-left">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {webhooks.map((webhook) => (
+                <tr key={webhook.id} className="border-b border-gray-700">
+                  <td className="px-4 py-3">
+                    <div className="text-sm">{webhook.url}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="px-2 py-1 rounded text-xs bg-blue-500/20 text-blue-300">
+                      {webhook.event_type}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="text-sm text-gray-400">
+                      {webhook.username || '-'}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`px-2 py-1 rounded text-xs ${webhook.is_active ? 'bg-green-500/20 text-green-300' : 'bg-gray-500/20 text-gray-300'}`}>
+                      {webhook.is_active ? 'Ativo' : 'Inativo'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleEdit(webhook)}
+                        className="text-[#d4af37] hover:text-[#ffd700] text-xs"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        onClick={() => handleDelete(webhook.id)}
                         className="text-red-400 hover:text-red-300 text-xs"
                       >
                         Deletar

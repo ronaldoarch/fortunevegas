@@ -309,3 +309,29 @@ class TrackingConfig(Base):
     metadata_json = Column(Text)  # JSON com configurações adicionais
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class WebhookEventType(str, enum.Enum):
+    PIX_PAY_IN = "PIX_PAY_IN"
+    PIX_PAY_OUT = "PIX_PAY_OUT"
+    PIX_REVERSAL = "PIX_REVERSAL"
+    PIX_REVERSAL_OUT = "PIX_REVERSAL_OUT"
+    PIX_REFUND = "PIX_REFUND"
+    BILLPAYMENT = "BILLPAYMENT"
+    CREDIT_CARD_OUT = "CREDIT_CARD_OUT"
+    CREDIT_CARD_CHARGEBACK = "CREDIT_CARD_CHARGEBACK"
+    INFRACTION = "INFRACTION"
+
+
+class Webhook(Base):
+    """Configuração de webhooks para eventos da Gatebox"""
+    __tablename__ = "webhooks"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    url = Column(String(500), nullable=False)  # URL do webhook
+    username = Column(String(255))  # Username para autenticação HTTP Basic (opcional)
+    password = Column(String(500))  # Password para autenticação HTTP Basic (opcional)
+    event_type = Column(Enum(WebhookEventType), nullable=False)  # Tipo de evento
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

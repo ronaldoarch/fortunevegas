@@ -10,12 +10,17 @@ import json
 from database import get_db
 from dependencies import get_current_admin_user, get_current_user
 from models import (
+    Webhook,
+    WebhookEventType,
     User, Deposit, Withdrawal, FTD, Gateway, IGameWinAgent, FTDSettings,
     TransactionStatus, UserRole, Bet, BetStatus, Notification, NotificationType,
     GameLayout, ProviderLayout, Theme, Affiliate,
     IGameWinProviderConfig, TrackingConfig, TrackingType
 )
 from schemas import (
+    WebhookCreate,
+    WebhookUpdate,
+    WebhookResponse,
     UserResponse, UserCreate, UserUpdate,
     DepositResponse, DepositCreate, DepositUpdate,
     WithdrawalResponse, WithdrawalCreate, WithdrawalUpdate,
@@ -2184,3 +2189,102 @@ async def delete_tracking_config(
     db.delete(config)
     db.commit()
     return {"success": True, "message": "Configuração deletada com sucesso"}
+
+
+# ========== WEBHOOKS ==========
+
+@router.get("/webhooks", response_model=List[WebhookResponse])
+async def list_webhooks(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Listar todos os webhooks"""
+    webhooks = db.query(Webhook).order_by(Webhook.created_at.desc()).all()
+    return webhooks
+
+
+@router.post("/webhooks", response_model=WebhookResponse, status_code=status.HTTP_201_CREATED)
+async def create_webhook(
+    webhook_data: WebhookCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Criar novo webhook"""
+    # Validar event_type
+    try:
+        event_type = WebhookEventType(webhook_data.event_type)
+    except ValueError:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Tipo de evento inválido. Tipos válidos: {[e.value for e in WebhookEventType]}"
+        )
+    
+    # Validar URL
+    if not webhook_data.url or not webhook_data.url.startswith(('http://', 'https://')):
+        raise HTTPException(status_code=400, detail="URL inválida. Deve começar com http:// ou https://")
+    
+    webhook = Webhook(
+        url=webhook_data.url,
+        username=webhook_data.username,
+        password=webhook_data.password,
+        event_type=event_type,
+        is_active=webhook_data.is_active
+    )
+    
+    db.add(webhook)
+    db.commit()
+    db.refresh(webhook)
+    return webhook
+
+
+@router.put("/webhooks/{webhook_id}", response_model=WebhookResponse)
+async def update_webhook(
+    webhook_id: int,
+    webhook_data: WebhookUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Atualizar webhook"""
+    webhook = db.query(Webhook).filter(Webhook.id == webhook_id).first()
+    if not webhook:
+        raise HTTPException(status_code=404, detail="Webhook não encontrado")
+    
+    update_data = webhook_data.model_dump(exclude_unset=True)
+    
+    # Validar event_type se fornecido
+    if "event_type" in update_data:
+        try:
+            update_data["event_type"] = WebhookEventType(update_data["event_type"])
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Tipo de evento inválido. Tipos válidos: {[e.value for e in WebhookEventType]}"
+            )
+    
+    # Validar URL se fornecida
+    if "url" in update_data:
+        if not update_data["url"] or not update_data["url"].startswith(('http://', 'https://')):
+            raise HTTPException(status_code=400, detail="URL inválida. Deve começar com http:// ou https://")
+    
+    for field, value in update_data.items():
+        setattr(webhook, field, value)
+    
+    db.commit()
+    db.refresh(webhook)
+    return webhook
+
+
+@router.delete("/webhooks/{webhook_id}")
+async def delete_webhook(
+    webhook_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Deletar webhook"""
+    webhook = db.query(Webhook).filter(Webhook.id == webhook_id).first()
+    if not webhook:
+        raise HTTPException(status_code=404, detail="Webhook não encontrado")
+    
+    db.delete(webhook)
+    db.commit()
+    return {"success": True, "message": "Webhook deletado com sucesso"}
