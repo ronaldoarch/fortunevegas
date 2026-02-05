@@ -3154,8 +3154,11 @@ async def create_tracking_config(
     # Validar campos obrigatórios por tipo
     if config_data.type == "webhook" and not config_data.url:
         raise HTTPException(status_code=400, detail="URL é obrigatória para webhook")
-    if config_data.type == "pixel" and not config_data.pixel_id:
-        raise HTTPException(status_code=400, detail="Pixel ID é obrigatório para pixel")
+    if config_data.type == "pixel":
+        if not config_data.pixel_id:
+            raise HTTPException(status_code=400, detail="Pixel ID é obrigatório para pixel")
+        if not config_data.access_token:
+            raise HTTPException(status_code=400, detail="Access Token é obrigatório para pixel (necessário para API de Conversões)")
     if config_data.type == "api" and not config_data.access_token and not config_data.api_key:
         raise HTTPException(status_code=400, detail="Access Token ou API Key é obrigatório para API")
     
@@ -3188,8 +3191,11 @@ async def update_tracking_config(
     final_type = update_data.get("type", config.type)
     if final_type == "webhook" and not (update_data.get("url") or config.url):
         raise HTTPException(status_code=400, detail="URL é obrigatória para webhook")
-    if final_type == "pixel" and not (update_data.get("pixel_id") or config.pixel_id):
-        raise HTTPException(status_code=400, detail="Pixel ID é obrigatório para pixel")
+    if final_type == "pixel":
+        if not (update_data.get("pixel_id") or config.pixel_id):
+            raise HTTPException(status_code=400, detail="Pixel ID é obrigatório para pixel")
+        if not (update_data.get("access_token") or config.access_token):
+            raise HTTPException(status_code=400, detail="Access Token é obrigatório para pixel (necessário para API de Conversões)")
     if final_type == "api" and not (update_data.get("access_token") or config.access_token or update_data.get("api_key") or config.api_key):
         raise HTTPException(status_code=400, detail="Access Token ou API Key é obrigatório para API")
     

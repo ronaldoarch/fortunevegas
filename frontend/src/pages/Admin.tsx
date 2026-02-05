@@ -4596,17 +4596,32 @@ function TrackingTab({ token }: { token: string }) {
         )}
 
         {form.type === 'pixel' && (
-          <div>
-            <label className="block text-sm font-medium mb-2">Pixel ID *</label>
-            <input
-              type="text"
-              value={form.pixel_id}
-              onChange={(e) => setForm({ ...form, pixel_id: e.target.value })}
-              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
-              required={form.type === 'pixel'}
-              placeholder="Ex: 123456789012345"
-            />
-          </div>
+          <>
+            <div>
+              <label className="block text-sm font-medium mb-2">Pixel ID *</label>
+              <input
+                type="text"
+                value={form.pixel_id}
+                onChange={(e) => setForm({ ...form, pixel_id: e.target.value })}
+                className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+                required={form.type === 'pixel'}
+                placeholder="Ex: 123456789012345"
+              />
+              <p className="text-xs text-gray-400 mt-1">ID do Pixel (Facebook Pixel, Google Pixel, etc)</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Access Token (Token de Acesso) *</label>
+              <input
+                type="password"
+                value={form.access_token}
+                onChange={(e) => setForm({ ...form, access_token: e.target.value })}
+                className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+                required={form.type === 'pixel'}
+                placeholder="Token de acesso da API de Conversões"
+              />
+              <p className="text-xs text-gray-400 mt-1">Token necessário para usar a API de Conversões (Facebook Conversions API, Google Conversions API, etc)</p>
+            </div>
+          </>
         )}
 
         {form.type === 'api' && (
@@ -4731,8 +4746,11 @@ function TrackingTab({ token }: { token: string }) {
                       {config.type === 'webhook' && config.url && (
                         <div>URL: {config.url.substring(0, 50)}...</div>
                       )}
-                      {config.type === 'pixel' && config.pixel_id && (
-                        <div>Pixel ID: {config.pixel_id}</div>
+                      {config.type === 'pixel' && (
+                        <>
+                          {config.pixel_id && <div>Pixel ID: {config.pixel_id}</div>}
+                          {config.access_token && <div>Token: ••••••••</div>}
+                        </>
                       )}
                       {config.type === 'api' && (
                         <div>
