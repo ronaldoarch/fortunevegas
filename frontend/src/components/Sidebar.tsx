@@ -9,6 +9,15 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ isOpen, onClose, filters, onFiltersChange, providers = [] }: SidebarProps) {
+  // Mapeamento de nomes de jogos para códigos conhecidos
+  const gameCodeMap: Record<string, string> = {
+    'Fortune Tiger': 'fortune-tiger',
+    'Fortune Mouse': 'fortune-mouse',
+    'Fortune Ox': 'fortune-ox',
+    'Mines': 'mines',
+    'Aviator': 'aviator',
+  };
+
   const popularGames = [
     'Fortune Tiger',
     'Fortune Mouse',
@@ -124,16 +133,24 @@ export default function Sidebar({ isOpen, onClose, filters, onFiltersChange, pro
             </div>
             <div className="px-4 pb-3">
               <ul className="space-y-1">
-                {popularGames.map((game) => (
-                  <li key={game}>
-                    <a
-                      href={`/jogo/${game.toLowerCase().replace(/\s+/g, '-')}`}
-                      className="block px-1 py-2 rounded-md text-xs hover:bg-[#0d5d4b] transition-all duration-200 text-gray-100 hover:text-white"
-                    >
-                      {game}
-                    </a>
-                  </li>
-                ))}
+                {popularGames.map((game) => {
+                  const gameCode = gameCodeMap[game] || game.toLowerCase().replace(/\s+/g, '-');
+                  return (
+                    <li key={game}>
+                      <a
+                        href={`/jogo/${gameCode}`}
+                        className="block px-1 py-2 rounded-md text-xs hover:bg-[#0d5d4b] transition-all duration-200 text-gray-100 hover:text-white"
+                        onClick={(e) => {
+                          // Garantir que o link funcione mesmo se o jogo não for encontrado imediatamente
+                          e.preventDefault();
+                          window.location.href = `/jogo/${gameCode}`;
+                        }}
+                      >
+                        {game}
+                      </a>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           </nav>

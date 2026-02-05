@@ -47,76 +47,106 @@ export default function NovidadesSection({ filters, onProvidersLoaded }: Novidad
   }, []);
 
   const [gamesByProvider, setGamesByProvider] = useState<Record<string, { provider_name: string; games: Game[] }>>({});
+  const gamesCacheRef = useRef<{ data: any; timestamp: number } | null>(null);
+  const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
 
   useEffect(() => {
     const fetchGames = async () => {
+      // Verificar cache
+      if (gamesCacheRef.current && Date.now() - gamesCacheRef.current.timestamp < CACHE_DURATION) {
+        const cachedData = gamesCacheRef.current.data;
+        processGamesData(cachedData);
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       try {
-        const res = await fetch(API_URL);
+        const res = await fetch(API_URL, {
+          headers: {
+            'Cache-Control': 'max-age=300' // Cache de 5 minutos no navegador
+          }
+        });
         if (!res.ok) throw new Error('Falha ao carregar jogos');
         const data = await res.json();
         
-        // Se há games_by_provider, usar essa estrutura (configurada pelo admin)
-        if (data.games_by_provider && Object.keys(data.games_by_provider).length > 0) {
-          const providerMap: Record<string, { provider_name: string; games: Game[] }> = {};
-          Object.entries(data.games_by_provider).forEach(([providerCode, providerData]: [string, any]) => {
-            providerMap[providerCode] = {
-              provider_name: providerData.provider_name || providerCode,
-              games: (providerData.games || []).map((g: any, idx: number) => ({
-                id: g.code || g.name || String(idx),
-                title: g.name || g.title || 'Jogo',
-                provider: providerCode,
-                banner: g.banner,
-                code: g.code,
-              }))
-            };
-          });
-          setGamesByProvider(providerMap);
-          
-          // Para compatibilidade, também manter lista plana
-          const allGames: Game[] = [];
-          Object.values(providerMap).forEach(provider => {
-            allGames.push(...provider.games);
-          });
-          setGames(allGames);
-          
-          if (!providersLoadedRef.current) {
-            const providerNames = Object.values(providerMap).map(p => p.provider_name);
-            onProvidersLoaded?.(providerNames);
-            providersLoadedRef.current = true;
-          }
-        } else {
-          // Fallback: usar formato antigo (lista plana)
-          const mapped: Game[] = (data.games || []).map((g: any, idx: number) => ({
-            id: g.code || g.name || String(idx),
-            title: g.name || g.title || 'Jogo',
-            provider: g.provider,
-            banner: g.banner,
-            code: g.code,
-          }));
-          setGames(mapped);
-          setGamesByProvider({});
-          
-          if (!providersLoadedRef.current) {
-            const uniqueProviders = Array.from(
-              new Set(
-                mapped
-                  .map((g) => g.provider?.trim())
-                  .filter((p): p is string => Boolean(p))
-              )
-            ).sort((a, b) => a.localeCompare(b));
-            onProvidersLoaded?.(uniqueProviders);
-            providersLoadedRef.current = true;
-          }
-        }
+        // Salvar no cache
+        gamesCacheRef.current = {
+          data,
+          timestamp: Date.now()
+        };
+        
+        processGamesData(data);
       } catch (err) {
         console.error('Erro ao buscar jogos', err);
+        // Tentar usar cache mesmo se expirado em caso de erro
+        if (gamesCacheRef.current) {
+          processGamesData(gamesCacheRef.current.data);
+        }
       } finally {
         setLoading(false);
       }
     };
+
+    const processGamesData = (data: any) => {
+        
+      // Se há games_by_provider, usar essa estrutura (configurada pelo admin)
+      if (data.games_by_provider && Object.keys(data.games_by_provider).length > 0) {
+        const providerMap: Record<string, { provider_name: string; games: Game[] }> = {};
+        Object.entries(data.games_by_provider).forEach(([providerCode, providerData]: [string, any]) => {
+          providerMap[providerCode] = {
+            provider_name: providerData.provider_name || providerCode,
+            games: (providerData.games || []).map((g: any, idx: number) => ({
+              id: g.code || g.name || String(idx),
+              title: g.name || g.title || 'Jogo',
+              provider: providerCode,
+              banner: g.banner,
+              code: g.code,
+            }))
+          };
+        });
+        setGamesByProvider(providerMap);
+        
+        // Para compatibilidade, também manter lista plana
+        const allGames: Game[] = [];
+        Object.values(providerMap).forEach(provider => {
+          allGames.push(...provider.games);
+        });
+        setGames(allGames);
+        
+        if (!providersLoadedRef.current) {
+          const providerNames = Object.values(providerMap).map(p => p.provider_name);
+          onProvidersLoaded?.(providerNames);
+          providersLoadedRef.current = true;
+        }
+      } else {
+        // Fallback: usar formato antigo (lista plana)
+        const mapped: Game[] = (data.games || []).map((g: any, idx: number) => ({
+          id: g.code || g.name || String(idx),
+          title: g.name || g.title || 'Jogo',
+          provider: g.provider,
+          banner: g.banner,
+          code: g.code,
+        }));
+        setGames(mapped);
+        setGamesByProvider({});
+        
+        if (!providersLoadedRef.current) {
+          const uniqueProviders = Array.from(
+            new Set(
+              mapped
+                .map((g) => g.provider?.trim())
+                .filter((p): p is string => Boolean(p))
+            )
+          ).sort((a, b) => a.localeCompare(b));
+          onProvidersLoaded?.(uniqueProviders);
+          providersLoadedRef.current = true;
+        }
+      }
+    };
+
     fetchGames();
-  }, []);
+  }, [onProvidersLoaded]);
 
   const normalizedQuery = (filters?.query || '').trim().toLowerCase();
   const normalizedProvider = (filters?.provider || '').trim().toLowerCase();

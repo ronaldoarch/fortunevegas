@@ -697,6 +697,10 @@ async def public_games(
     section: Optional[str] = Query("home", description="Seção: home, featured"),
     db: Session = Depends(get_db)
 ):
+    """
+    Retorna lista de jogos públicos.
+    Cache recomendado: 5 minutos (300 segundos)
+    """
     api = get_igamewin_api(db)
     if not api:
         raise HTTPException(status_code=400, detail="Nenhum agente IGameWin ativo configurado")

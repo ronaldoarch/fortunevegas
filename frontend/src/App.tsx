@@ -65,7 +65,12 @@ function App() {
         <div className="flex-1 min-w-0 md:ml-[220px]">
           <main className="pb-20 md:pb-0">
             <HeroBanner />
-            <SearchBar />
+            <SearchBar 
+              query={filters.query}
+              provider={filters.provider}
+              providers={providers}
+              onFiltersChange={handleFiltersChange}
+            />
             <NovidadesSection
               filters={filters}
               onProvidersLoaded={handleProvidersLoaded}
