@@ -2158,6 +2158,40 @@ async def upload_promotion_banner(
     return {"banner_url": banner_url, "promotion": schemas.PromotionResponse.model_validate(promotion)}
 
 
+# ========== PUBLIC PROMOTIONS ==========
+@public_router.get("/promotions")
+async def get_public_promotions(
+    db: Session = Depends(get_db)
+):
+    """Listar promoções ativas (público)"""
+    from datetime import datetime
+    now = datetime.utcnow()
+    
+    promotions = db.query(Promotion).filter(
+        Promotion.is_active == True,
+        Promotion.start_date <= now,
+        Promotion.end_date >= now
+    ).order_by(desc(Promotion.created_at)).all()
+    
+    return [
+        {
+            "id": promo.id,
+            "title": promo.title,
+            "description": promo.description,
+            "type": promo.type.value,
+            "bonus_value": promo.bonus_value,
+            "bonus_type": promo.bonus_type,
+            "banner_url": promo.banner_url,
+            "is_first_deposit_only": promo.is_first_deposit_only,
+            "min_deposit_amount": promo.min_deposit_amount,
+            "max_bonus_amount": promo.max_bonus_amount,
+            "start_date": promo.start_date.isoformat(),
+            "end_date": promo.end_date.isoformat(),
+        }
+        for promo in promotions
+    ]
+
+
 # ========== GAME LAYOUT ==========
 @router.get("/game-layouts", response_model=List[GameLayoutResponse])
 async def get_game_layouts(
