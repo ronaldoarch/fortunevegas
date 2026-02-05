@@ -548,6 +548,101 @@ class AffiliateMetricResponse(AffiliateMetricBase):
         from_attributes = True
 
 
+# Coupon Schemas
+class CouponBase(BaseModel):
+    code: str
+    type: str  # 'percentage' ou 'fixed'
+    value: float
+    max_uses: Optional[int] = None
+    valid_from: datetime
+    valid_until: datetime
+    min_deposit_amount: float = 0.0
+    max_bonus_amount: Optional[float] = None
+    is_active: bool = True
+
+
+class CouponCreate(CouponBase):
+    pass
+
+
+class CouponUpdate(BaseModel):
+    code: Optional[str] = None
+    type: Optional[str] = None
+    value: Optional[float] = None
+    max_uses: Optional[int] = None
+    valid_from: Optional[datetime] = None
+    valid_until: Optional[datetime] = None
+    min_deposit_amount: Optional[float] = None
+    max_bonus_amount: Optional[float] = None
+    is_active: Optional[bool] = None
+
+
+class CouponResponse(CouponBase):
+    id: int
+    uses: int
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class CouponValidateRequest(BaseModel):
+    code: str
+    deposit_amount: float
+
+
+class CouponValidateResponse(BaseModel):
+    valid: bool
+    coupon: Optional[CouponResponse] = None
+    bonus_amount: float = 0.0
+    message: str
+
+
+# Promotion Schemas
+class PromotionBase(BaseModel):
+    title: str
+    description: Optional[str] = None
+    type: str  # 'bonus', 'cashback', 'free_spins', 'tournament'
+    bonus_value: float = 0.0
+    bonus_type: str = "percentage"  # 'percentage' ou 'fixed'
+    min_deposit_amount: float = 0.0
+    max_bonus_amount: Optional[float] = None
+    banner_url: Optional[str] = None
+    is_first_deposit_only: bool = False
+    is_active: bool = True
+    start_date: datetime
+    end_date: datetime
+
+
+class PromotionCreate(PromotionBase):
+    pass
+
+
+class PromotionUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    type: Optional[str] = None
+    bonus_value: Optional[float] = None
+    bonus_type: Optional[str] = None
+    min_deposit_amount: Optional[float] = None
+    max_bonus_amount: Optional[float] = None
+    banner_url: Optional[str] = None
+    is_first_deposit_only: Optional[bool] = None
+    is_active: Optional[bool] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+
+
+class PromotionResponse(PromotionBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
 # Promotion Schemas
 class PromotionBase(BaseModel):
     title: str

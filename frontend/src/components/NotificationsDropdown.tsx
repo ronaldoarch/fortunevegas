@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Bell, X, Check, Gift, AlertCircle, Info, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Bell, X, Gift, AlertCircle, Info, CheckCircle, AlertTriangle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 // Backend FastAPI - usa variável de ambiente ou fallback para localhost
@@ -23,7 +23,6 @@ interface NotificationsDropdownProps {
 export default function NotificationsDropdown({ token }: NotificationsDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [loading, setLoading] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
@@ -188,12 +187,7 @@ export default function NotificationsDropdown({ token }: NotificationsDropdownPr
 
           {/* Lista de Notificações */}
           <div className="overflow-y-auto flex-1">
-            {loading ? (
-              <div className="p-8 text-center text-gray-400">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#d4af37] mx-auto mb-2"></div>
-                <p>Carregando...</p>
-              </div>
-            ) : notifications.length === 0 ? (
+            {notifications.length === 0 ? (
               <div className="p-8 text-center text-gray-400">
                 <Bell size={32} className="mx-auto mb-2 opacity-50" />
                 <p>Nenhuma notificação</p>
