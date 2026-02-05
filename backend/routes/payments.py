@@ -14,6 +14,7 @@ from datetime import datetime
 import json
 import uuid
 import os
+import re
 
 router = APIRouter(prefix="/api/public/payments", tags=["payments"])
 webhook_router = APIRouter(prefix="/api/webhooks", tags=["webhooks"])
@@ -444,14 +445,14 @@ async def create_pix_withdrawal(
     recipient_name = user.username or "Usuário"
     
     # Se o username for apenas números (telefone), usar um nome mais apropriado
-    if recipient_name and recipient_name.replace(/\D/g, '').length === recipient_name.length:
+    if recipient_name and re.match(r'^\d+$', recipient_name):
         # Username é apenas números, usar formato mais apropriado
         recipient_name = f"Cliente {user.id}" if user.id else "Usuário"
     
-    # Se houver email, tentar extrair nome do email
+    # Se houver email, tentar extrair nome do email (se não for apenas números)
     if user.email and '@' in user.email:
         email_name = user.email.split('@')[0]
-        if email_name and len(email_name) > 3 and not email_name.replace(/\D/g, '').length === email_name.length:
+        if email_name and len(email_name) > 3 and not re.match(r'^\d+$', email_name):
             recipient_name = email_name
     
     # Log dos dados que serão enviados
