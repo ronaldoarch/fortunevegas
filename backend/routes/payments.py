@@ -419,13 +419,25 @@ async def create_pix_withdrawal(
     # Limpar chave PIX (remover espaços e caracteres especiais se necessário)
     pix_key_clean = pix_key.strip()
     
-    # Se for telefone, garantir formato correto (apenas números com código do país)
+    # Se for telefone, garantir formato correto
+    # A Gatebox espera formato: +55XXXXXXXXXXX (com + e código do país)
     if type_key == "TELEFONE":
         # Remover caracteres não numéricos
         pix_key_clean = ''.join(filter(str.isdigit, pix_key_clean))
-        # Se não começar com 55 (código do Brasil), adicionar
-        if not pix_key_clean.startswith('55'):
-            pix_key_clean = '55' + pix_key_clean
+        
+        # Remover código do país se já estiver presente
+        if pix_key_clean.startswith('55'):
+            pix_key_clean = pix_key_clean[2:]
+        
+        # Validar tamanho do telefone (deve ter 10 ou 11 dígitos após remover código do país)
+        if len(pix_key_clean) < 10 or len(pix_key_clean) > 11:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Telefone inválido. Use o formato: (XX) XXXXX-XXXX ou (XX) XXXX-XXXX"
+            )
+        
+        # Formatar como +55XXXXXXXXXXX (com + e código do país)
+        pix_key_clean = f"+55{pix_key_clean}"
         print(f"[WITHDRAWAL] Chave PIX (telefone) formatada: {pix_key_clean}")
     
     # Buscar gateway PIX ativo
@@ -897,19 +909,37 @@ async def _process_pix_cashout(data: dict, db: Session):
         transaction_data.get("errorMessage")
     )
     
-    # Verificar também em bankData
+    # Verificar também em bankData e invoice
     bank_data = data.get("bankData") or {}
+    invoice_data = data.get("invoice") or {}
+    
     if not failure_reason:
         failure_reason = (
             bank_data.get("error") or
             bank_data.get("message") or
-            bank_data.get("reason")
+            bank_data.get("reason") or
+            invoice_data.get("error") or
+            invoice_data.get("message")
         )
+    
+    # Tentar extrair erro de campos aninhados
+    if not failure_reason and isinstance(data, dict):
+        # Procurar por campos de erro em qualquer nível
+        for key, value in data.items():
+            if isinstance(value, dict):
+                error_msg = value.get("error") or value.get("message") or value.get("reason")
+                if error_msg:
+                    failure_reason = error_msg
+                    break
     
     print(f"[WEBHOOK] External ID extraído: {external_id}")
     print(f"[WEBHOOK] Transaction ID extraído: {transaction_id}")
     print(f"[WEBHOOK] Status extraído: {status_transaction}")
     print(f"[WEBHOOK] Motivo da falha (se houver): {failure_reason}")
+    
+    # Se não encontrou motivo, tentar buscar na resposta completa
+    if not failure_reason and status_transaction == "FAILED":
+        print(f"[WEBHOOK] ⚠️ Status FAILED mas motivo não encontrado. Dados completos: {json.dumps(data, indent=2)}")
     
     # Buscar saque pelo external_id
     withdrawal = None
