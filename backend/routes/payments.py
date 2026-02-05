@@ -579,15 +579,24 @@ async def webhook_gatebox(request: Request, db: Session = Depends(get_db)):
             request.headers.get("X-Gatebox-Event-Type")
         )
         
+        # Extrair status - pode estar no nível raiz ou dentro de transaction
+        transaction_data = data.get("transaction") or {}
         status_transaction = (
             data.get("status") or 
+            transaction_data.get("status") or
             data.get("statusTransaction") or 
             data.get("status_transaction") or
             original_data.get("status") or
             original_data.get("statusTransaction")
         )
         
-        external_id = data.get("externalId") or data.get("external_id")
+        # Extrair external_id - pode estar no nível raiz ou dentro de transaction
+        external_id = (
+            data.get("externalId") or 
+            data.get("external_id") or
+            transaction_data.get("externalId") or
+            transaction_data.get("external_id")
+        )
         
         print(f"[WEBHOOK] Event type identificado: {event_type}")
         print(f"[WEBHOOK] Status: {status_transaction}")
@@ -793,19 +802,52 @@ async def _process_pix_cashin(data: dict, db: Session):
 
 async def _process_pix_cashout(data: dict, db: Session):
     """Processa webhook de PIX Cash-out (saque)"""
+    print(f"[WEBHOOK] ========== PROCESSANDO PIX CASHOUT ==========")
+    print(f"[WEBHOOK] Data recebida: {json.dumps(data, indent=2)}")
+    
     # Buscar gateway PIX ativo
     gateway = get_active_pix_gateway(db)
     
-    # Processar webhook
-    external_id = data.get("externalId") or data.get("external_id")
-    transaction_id = data.get("transactionId") or data.get("transaction_id") or data.get("id")
-    status_transaction = data.get("status") or data.get("statusTransaction") or data.get("status_transaction")
-    end_to_end = data.get("endToEnd") or data.get("end_to_end")
+    # Processar webhook - verificar estrutura aninhada
+    # A Gatebox pode enviar dados em data["transaction"] ou diretamente em data
+    transaction_data = data.get("transaction") or data
+    external_id = (
+        transaction_data.get("externalId") or 
+        transaction_data.get("external_id") or
+        data.get("externalId") or 
+        data.get("external_id")
+    )
+    transaction_id = (
+        transaction_data.get("transactionId") or 
+        transaction_data.get("transaction_id") or 
+        transaction_data.get("id") or
+        data.get("transactionId") or 
+        data.get("transaction_id") or 
+        data.get("id")
+    )
+    status_transaction = (
+        data.get("status") or 
+        transaction_data.get("status") or
+        data.get("statusTransaction") or 
+        data.get("status_transaction")
+    )
+    end_to_end = (
+        data.get("endToEnd") or 
+        data.get("end_to_end") or
+        transaction_data.get("endToEnd") or 
+        transaction_data.get("end_to_end")
+    )
+    
+    print(f"[WEBHOOK] External ID extraído: {external_id}")
+    print(f"[WEBHOOK] Transaction ID extraído: {transaction_id}")
+    print(f"[WEBHOOK] Status extraído: {status_transaction}")
     
     # Buscar saque pelo external_id
     withdrawal = None
     if external_id:
         withdrawal = db.query(Withdrawal).filter(Withdrawal.external_id == external_id).first()
+        if withdrawal:
+            print(f"[WEBHOOK] Saque encontrado pelo external_id: {external_id}, ID: {withdrawal.id}")
     
     # Se não encontrou pelo external_id, tentar pelo transaction_id no metadata
     if not withdrawal and transaction_id:
@@ -814,52 +856,89 @@ async def _process_pix_cashout(data: dict, db: Session):
         ).all()
         for w in withdrawals:
             metadata = json.loads(w.metadata_json) if w.metadata_json else {}
-            if metadata.get("transaction_id") == transaction_id or metadata.get("end_to_end") == end_to_end:
+            gatebox_response = metadata.get("gatebox_response") or {}
+            if (metadata.get("transaction_id") == transaction_id or 
+                gatebox_response.get("transactionId") == transaction_id or
+                gatebox_response.get("uuid") == transaction_id or
+                metadata.get("end_to_end") == end_to_end):
                 withdrawal = w
+                print(f"[WEBHOOK] Saque encontrado pelo transaction_id/uuid: {transaction_id}, ID: {withdrawal.id}")
                 break
     
     if not withdrawal:
+        print(f"[WEBHOOK] ❌ Saque não encontrado - external_id: {external_id}, transaction_id: {transaction_id}")
         return {"status": "ok", "message": "Saque não encontrado"}
+    
+    print(f"[WEBHOOK] Saque encontrado - ID: {withdrawal.id}, Status atual: {withdrawal.status.value}, Valor: {withdrawal.amount}")
     
     # Atualizar status do saque
     status_upper = str(status_transaction).upper() if status_transaction else ""
+    print(f"[WEBHOOK] Status processado (uppercase): {status_upper}")
     
-    if status_upper in ["PAID", "PAID_OUT", "CONFIRMED", "APPROVED", "SUCCESS"]:
+    # Status de sucesso
+    success_statuses = ["PAID", "PAID_OUT", "CONFIRMED", "APPROVED", "SUCCESS", "COMPLETED", "SETTLED"]
+    # Status de falha
+    failed_statuses = ["CANCELLED", "CANCELED", "REJECTED", "FAILED", "CHARGEBACK", "EXPIRED"]
+    
+    if status_upper in success_statuses:
+        print(f"[WEBHOOK] ✅ Saque aprovado - Status: {status_upper}")
         withdrawal.status = TransactionStatus.APPROVED
-    elif status_upper in ["CANCELLED", "CANCELED", "REJECTED", "FAILED"]:
-        # Reverter saldo se foi cancelado
-        if withdrawal.status == TransactionStatus.PENDING:
-            user = db.query(User).filter(User.id == withdrawal.user_id).first()
-            if user:
-                user.balance += withdrawal.amount
-        withdrawal.status = TransactionStatus.CANCELLED
+    elif status_upper in failed_statuses:
+        print(f"[WEBHOOK] ❌ Saque falhou - Status: {status_upper}, Revertendo saldo...")
+        # Reverter saldo quando o saque falha (o saldo foi bloqueado na criação)
+        user = db.query(User).filter(User.id == withdrawal.user_id).first()
+        if user:
+            old_balance = user.balance
+            user.balance += withdrawal.amount
+            print(f"[WEBHOOK] Saldo revertido - Usuário ID: {user.id}, Saldo anterior: {old_balance}, Saldo novo: {user.balance}, Valor revertido: {withdrawal.amount}")
+        else:
+            print(f"[WEBHOOK] ERRO: Usuário não encontrado - user_id: {withdrawal.user_id}")
+        withdrawal.status = TransactionStatus.REJECTED
+    else:
+        print(f"[WEBHOOK] ⚠️ Status não reconhecido ou ainda pendente - Status: {status_upper}")
     
     # Atualizar metadata
     metadata = json.loads(withdrawal.metadata_json) if withdrawal.metadata_json else {}
     metadata["webhook_data"] = data
     metadata["webhook_received_at"] = datetime.utcnow().isoformat()
+    metadata["webhook_status"] = status_transaction
     withdrawal.metadata_json = json.dumps(metadata)
     
-    db.commit()
-    
-    # Disparar webhooks configurados para PIX_PAY_OUT
-    await dispatch_webhook(
-        db=db,
-        event_type=WebhookEventType.PIX_PAY_OUT,
-        payload={
-            "event_type": "PIX_PAY_OUT",
+    try:
+        db.commit()
+        print(f"[WEBHOOK] ✅ Saque atualizado e commitado - ID: {withdrawal.id}, Novo status: {withdrawal.status.value}")
+        
+        # Disparar webhooks configurados para PIX_PAY_OUT (não bloquear se falhar)
+        try:
+            await dispatch_webhook(
+                db=db,
+                event_type=WebhookEventType.PIX_PAY_OUT,
+                payload={
+                    "event_type": "PIX_PAY_OUT",
+                    "withdrawal_id": withdrawal.id,
+                    "user_id": withdrawal.user_id,
+                    "amount": withdrawal.amount,
+                    "status": withdrawal.status.value,
+                    "transaction_id": withdrawal.transaction_id,
+                    "external_id": withdrawal.external_id,
+                    "end_to_end": end_to_end,
+                    "gatebox_data": data
+                }
+            )
+        except Exception as e:
+            print(f"[WEBHOOK] ⚠️ Erro ao disparar webhook customizado (não crítico): {str(e)}")
+        
+        return {
+            "status": "ok", 
+            "message": "Webhook processado com sucesso",
             "withdrawal_id": withdrawal.id,
-            "user_id": withdrawal.user_id,
-            "amount": withdrawal.amount,
-            "status": withdrawal.status.value,
-            "transaction_id": withdrawal.transaction_id,
-            "external_id": withdrawal.external_id,
-            "end_to_end": end_to_end,
-            "gatebox_data": data
+            "withdrawal_status": withdrawal.status.value,
+            "balance_reverted": status_upper in failed_statuses
         }
-    )
-    
-    return {"status": "ok", "message": "Webhook processado com sucesso"}
+    except Exception as e:
+        db.rollback()
+        print(f"[WEBHOOK] ❌ Erro ao commitar saque: {str(e)}")
+        raise
 
 
 async def _process_unknown_event(data: dict, db: Session):
