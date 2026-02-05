@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { ArrowLeft, Users, DollarSign, TrendingUp, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, Users, DollarSign, TrendingUp } from 'lucide-react';
 
 // Backend FastAPI - usa variável de ambiente ou fallback para localhost
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Wallet, User, Mail, Phone, CreditCard, LogOut, ArrowLeft, Settings } from 'lucide-react';
+import { Wallet, User, Mail, Phone, CreditCard, LogOut, ArrowLeft } from 'lucide-react';
 
 export default function Profile() {
   const navigate = useNavigate();
