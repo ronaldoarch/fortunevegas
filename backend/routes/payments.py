@@ -520,6 +520,7 @@ async def webhook_gatebox(request: Request, db: Session = Depends(get_db)):
     """
     Webhook único para receber todas as notificações da Gatebox
     Esta é a URL que deve ser configurada no painel da Gatebox
+    Todos os tipos de eventos (PIX_PAY_IN, PIX_PAY_OUT, etc.) apontam para esta mesma URL
     """
     try:
         # Tentar obter dados como JSON
@@ -533,7 +534,10 @@ async def webhook_gatebox(request: Request, db: Session = Depends(get_db)):
             except:
                 data = {}
         
-        print(f"[WEBHOOK] Webhook Gatebox recebido (raw): {json.dumps(data, indent=2)}")
+        # Log completo do webhook recebido
+        print(f"[WEBHOOK] ========== WEBHOOK GATEBOX RECEBIDO ==========")
+        print(f"[WEBHOOK] Headers: {dict(request.headers)}")
+        print(f"[WEBHOOK] Raw data: {json.dumps(data, indent=2)}")
         
         # Verificar se os dados estão dentro de um campo "data" ou similar
         # A Gatebox pode enviar: {"statusCode": 200, "data": {...}} ou diretamente {...}
@@ -544,15 +548,19 @@ async def webhook_gatebox(request: Request, db: Session = Depends(get_db)):
             data = {**data, **inner_data}
             print(f"[WEBHOOK] Dados extraídos do campo 'data': {json.dumps(inner_data, indent=2)}")
         
-        # Identificar o tipo de evento
+        # Identificar o tipo de evento - a Gatebox pode enviar o tipo de várias formas
         event_type = (
             data.get("eventType") or 
             data.get("event_type") or 
             data.get("type") or 
             data.get("event") or
+            data.get("eventType") or  # Pode estar no nível superior
             original_data.get("eventType") or
-            original_data.get("event_type")
+            original_data.get("event_type") or
+            request.headers.get("X-Event-Type") or  # Alguns sistemas enviam no header
+            request.headers.get("X-Gatebox-Event-Type")
         )
+        
         status_transaction = (
             data.get("status") or 
             data.get("statusTransaction") or 
@@ -561,39 +569,62 @@ async def webhook_gatebox(request: Request, db: Session = Depends(get_db)):
             original_data.get("statusTransaction")
         )
         
-        print(f"[WEBHOOK] Event type identificado: {event_type}, Status: {status_transaction}")
+        external_id = data.get("externalId") or data.get("external_id")
+        
+        print(f"[WEBHOOK] Event type identificado: {event_type}")
+        print(f"[WEBHOOK] Status: {status_transaction}")
+        print(f"[WEBHOOK] External ID: {external_id}")
         print(f"[WEBHOOK] Dados finais processados: {json.dumps(data, indent=2)}")
         
         # Se não tiver eventType explícito, tentar identificar pelo contexto
         if not event_type:
             # Verificar se é depósito ou saque pelo external_id
-            external_id = data.get("externalId") or data.get("external_id")
             if external_id:
                 deposit = db.query(Deposit).filter(Deposit.external_id == external_id).first()
                 if deposit:
                     event_type = "PIX_PAY_IN"
-                    print(f"[WEBHOOK] Identificado como PIX_PAY_IN pelo external_id: {external_id}")
+                    print(f"[WEBHOOK] ✅ Identificado como PIX_PAY_IN pelo external_id: {external_id}")
                 else:
                     withdrawal = db.query(Withdrawal).filter(Withdrawal.external_id == external_id).first()
                     if withdrawal:
                         event_type = "PIX_PAY_OUT"
-                        print(f"[WEBHOOK] Identificado como PIX_PAY_OUT pelo external_id: {external_id}")
+                        print(f"[WEBHOOK] ✅ Identificado como PIX_PAY_OUT pelo external_id: {external_id}")
         
         # Processar conforme o tipo de evento
+        result = None
         if event_type in ["PIX_PAY_IN", "pix_pay_in", "cashin", "cash-in", "PIX_CASH_IN"]:
-            return await _process_pix_cashin(data, db)
+            result = await _process_pix_cashin(data, db)
         elif event_type in ["PIX_PAY_OUT", "pix_pay_out", "cashout", "cash-out", "PIX_CASH_OUT"]:
-            return await _process_pix_cashout(data, db)
+            result = await _process_pix_cashout(data, db)
+        elif event_type in ["PIX_REVERSAL", "pix_reversal"]:
+            # Processar reversão de depósito
+            print(f"[WEBHOOK] Processando PIX_REVERSAL")
+            result = await _process_pix_cashin(data, db)  # Reversão pode ser tratada como cancelamento
+        elif event_type in ["PIX_REVERSAL_OUT", "pix_reversal_out"]:
+            # Processar reversão de saque
+            print(f"[WEBHOOK] Processando PIX_REVERSAL_OUT")
+            result = await _process_pix_cashout(data, db)
+        elif event_type in ["PIX_REFUND", "pix_refund"]:
+            # Processar estorno
+            print(f"[WEBHOOK] Processando PIX_REFUND")
+            result = await _process_pix_cashin(data, db)  # Estorno pode ser tratado como cancelamento
         else:
             # Tentar processar como depósito ou saque baseado nos dados
-            print(f"[WEBHOOK] Tipo de evento não reconhecido, tentando processar como evento desconhecido")
-            return await _process_unknown_event(data, db)
+            print(f"[WEBHOOK] ⚠️ Tipo de evento não reconhecido ({event_type}), tentando processar como evento desconhecido")
+            result = await _process_unknown_event(data, db)
+        
+        print(f"[WEBHOOK] ========== WEBHOOK PROCESSADO COM SUCESSO ==========")
+        
+        # Retornar sempre 200 OK para a Gatebox saber que recebemos o webhook
+        return {"status": "ok", "message": "Webhook recebido e processado", "result": result}
     
     except Exception as e:
         import traceback
-        print(f"[WEBHOOK] Erro ao processar webhook Gatebox: {str(e)}")
+        print(f"[WEBHOOK] ❌ ERRO ao processar webhook Gatebox: {str(e)}")
         print(f"[WEBHOOK] Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Erro ao processar webhook: {str(e)}")
+        # Retornar 200 mesmo em caso de erro para evitar retentativas desnecessárias
+        # Mas logar o erro para investigação
+        return {"status": "error", "message": f"Erro ao processar webhook: {str(e)}"}
 
 
 async def _process_pix_cashin(data: dict, db: Session):
@@ -705,27 +736,41 @@ async def _process_pix_cashin(data: dict, db: Session):
     metadata["webhook_status"] = status_transaction
     deposit.metadata_json = json.dumps(metadata)
     
-    db.commit()
-    print(f"[WEBHOOK] Depósito atualizado e commitado - ID: {deposit.id}, Novo status: {deposit.status.value}")
-    
-    # Disparar webhooks configurados para PIX_PAY_IN
-    await dispatch_webhook(
-        db=db,
-        event_type=WebhookEventType.PIX_PAY_IN,
-        payload={
-            "event_type": "PIX_PAY_IN",
+    try:
+        db.commit()
+        print(f"[WEBHOOK] ✅ Depósito atualizado e commitado - ID: {deposit.id}, Novo status: {deposit.status.value}")
+        
+        # Disparar webhooks configurados para PIX_PAY_IN (não bloquear se falhar)
+        try:
+            await dispatch_webhook(
+                db=db,
+                event_type=WebhookEventType.PIX_PAY_IN,
+                payload={
+                    "event_type": "PIX_PAY_IN",
+                    "deposit_id": deposit.id,
+                    "user_id": deposit.user_id,
+                    "amount": deposit.amount,
+                    "status": deposit.status.value,
+                    "transaction_id": deposit.transaction_id,
+                    "external_id": deposit.external_id,
+                    "end_to_end": end_to_end,
+                    "gatebox_data": data
+                }
+            )
+        except Exception as e:
+            print(f"[WEBHOOK] ⚠️ Erro ao disparar webhook customizado (não crítico): {str(e)}")
+        
+        return {
+            "status": "ok", 
+            "message": "Webhook processado com sucesso",
             "deposit_id": deposit.id,
-            "user_id": deposit.user_id,
-            "amount": deposit.amount,
-            "status": deposit.status.value,
-            "transaction_id": deposit.transaction_id,
-            "external_id": deposit.external_id,
-            "end_to_end": end_to_end,
-            "gatebox_data": data
+            "deposit_status": deposit.status.value,
+            "balance_credited": deposit.status == TransactionStatus.APPROVED
         }
-    )
-    
-    return {"status": "ok", "message": "Webhook processado com sucesso"}
+    except Exception as e:
+        db.rollback()
+        print(f"[WEBHOOK] ❌ Erro ao commitar depósito: {str(e)}")
+        raise
 
 
 async def _process_pix_cashout(data: dict, db: Session):
