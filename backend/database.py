@@ -389,6 +389,76 @@ def run_migrations():
             if result.fetchone() is None:
                 conn.execute(text("ALTER TABLE promotions ADD COLUMN is_withdrawable BOOLEAN NOT NULL DEFAULT FALSE"))
                 print("✓ Added is_withdrawable column to promotions")
+            
+            # Corrigir depósitos já aprovados que foram creditados antes da separação de saldo
+            print("Corrigindo depósitos já aprovados...")
+            deposits_result = conn.execute(text("""
+                SELECT d.id, d.user_id, d.amount, d.bonus_amount, d.coupon_code, d.metadata_json
+                FROM deposits d
+                WHERE d.status = 'approved' AND d.bonus_amount > 0
+            """))
+            deposits = deposits_result.fetchall()
+            
+            fixed_count = 0
+            for deposit in deposits:
+                deposit_id, user_id, amount, bonus_amount, coupon_code, metadata_json = deposit
+                
+                # Buscar cupom se houver
+                coupon_is_withdrawable = None
+                if coupon_code:
+                    coupon_result = conn.execute(text("""
+                        SELECT is_withdrawable FROM coupons WHERE code = :code
+                    """), {"code": coupon_code})
+                    coupon_row = coupon_result.fetchone()
+                    if coupon_row:
+                        coupon_is_withdrawable = coupon_row[0]
+                
+                # Extrair informações do metadata
+                import json
+                metadata = json.loads(metadata_json) if metadata_json else {}
+                promotion_id = metadata.get("promotion_id")
+                promotion_bonus = metadata.get("promotion_bonus", 0)
+                coupon_bonus = metadata.get("coupon_bonus", 0)
+                
+                # Calcular bônus não sacável
+                non_withdrawable_bonus = 0.0
+                
+                if coupon_bonus > 0 and coupon_is_withdrawable is not None:
+                    if not coupon_is_withdrawable:
+                        non_withdrawable_bonus += coupon_bonus
+                
+                if promotion_bonus > 0 and promotion_id:
+                    promotion_result = conn.execute(text("""
+                        SELECT is_withdrawable FROM promotions WHERE id = :id
+                    """), {"id": promotion_id})
+                    promotion_row = promotion_result.fetchone()
+                    if promotion_row and not promotion_row[0]:
+                        non_withdrawable_bonus += promotion_bonus
+                
+                # Se há bônus não sacável, mover do balance para bonus_balance
+                if non_withdrawable_bonus > 0:
+                    # Verificar se o usuário tem saldo suficiente (pode ter sido usado em apostas)
+                    user_result = conn.execute(text("""
+                        SELECT balance FROM users WHERE id = :id
+                    """), {"id": user_id})
+                    user_row = user_result.fetchone()
+                    
+                    if user_row and user_row[0] >= non_withdrawable_bonus:
+                        conn.execute(text("""
+                            UPDATE users 
+                            SET balance = balance - :non_withdrawable,
+                                bonus_balance = COALESCE(bonus_balance, 0) + :non_withdrawable
+                            WHERE id = :user_id
+                        """), {
+                            "non_withdrawable": non_withdrawable_bonus,
+                            "user_id": user_id
+                        })
+                        fixed_count += 1
+            
+            if fixed_count > 0:
+                print(f"✓ Corrigidos {fixed_count} depósitos - bônus não sacáveis movidos para bonus_balance")
+            else:
+                print("✓ Nenhum depósito precisa de correção")
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_promotions_is_active ON promotions(is_active)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_promotions_is_first_deposit_only ON promotions(is_first_deposit_only)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_promotions_start_date ON promotions(start_date)"))
