@@ -2422,8 +2422,11 @@ function AffiliatesTab({ token }: { token: string }) {
           const allFtds = ftdsRes.ok ? await ftdsRes.json() : [];
           const ftds = allFtds.filter((f: any) => subordinateIds.includes(f.user_id));
           
+          // Extrair CPA do metadata do afiliado
+          const metadata = affiliate.metadata_json ? JSON.parse(affiliate.metadata_json) : {};
+          const cpaRate = metadata.cpa || 2.0; // Valor padrão se não configurado
+          
           // Calcular ganhos
-          const cpaRate = 2.0; // Valor fixo de CPA
           const cpaEarned = ftds.length * cpaRate;
           const revshareRate = affiliate.commission_rate || 0;
           const revshareEarned = (totalDeposits * revshareRate) / 100;
@@ -2432,26 +2435,25 @@ function AffiliatesTab({ token }: { token: string }) {
           // Buscar usuário vinculado ao afiliado (o próprio afiliado)
           const affiliateUser = users.find((u: any) => u.affiliate_id === affiliate.id);
           
-          // Extrair CPA do metadata
-          const metadata = affiliate.metadata_json ? JSON.parse(affiliate.metadata_json) : {};
-          const cpaFromMetadata = metadata.cpa || cpaRate;
-          
           return {
             ...affiliate,
             user_id: affiliateUser?.id || subordinateUsers[0]?.id || null,
             user_name: affiliateUser?.username || subordinateUsers[0]?.username || '-',
-            cpa: cpaFromMetadata,
+            cpa: cpaRate,
             revshare: revshareRate,
             deposits_brought: totalDeposits,
             total_earned: totalEarned,
             referrals: subordinateUsers.length
           };
         } catch (err) {
+          const metadata = affiliate.metadata_json ? JSON.parse(affiliate.metadata_json) : {};
+          const cpaRate = metadata.cpa || 0;
+          const affiliateUser = users.find((u: any) => u.affiliate_id === affiliate.id);
           return {
             ...affiliate,
-            user_id: null,
-            user_name: '-',
-            cpa: 0,
+            user_id: affiliateUser?.id || null,
+            user_name: affiliateUser?.username || '-',
+            cpa: cpaRate,
             revshare: affiliate.commission_rate || 0,
             deposits_brought: 0,
             total_earned: 0,
