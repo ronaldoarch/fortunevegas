@@ -87,14 +87,14 @@ export default function Header({ onMenuClick, onLoginClick, onRegisterClick }: H
           <div className="flex items-center gap-2 md:gap-3">
             {user ? (
               <>
-                {/* Saldo */}
+                {/* Saldo Total (real + bônus) */}
                 <button
                   onClick={() => navigate('/conta')}
                   className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-[#0d5d4b] hover:bg-[#0f6d5b] rounded-md transition-colors"
                 >
                   <Wallet size={18} className="text-[#d4af37]" />
                   <span className="text-sm font-semibold">
-                    R$ {user.balance.toFixed(2).replace('.', ',')}
+                    R$ {((user.balance || 0) + (user.bonus_balance || 0)).toFixed(2).replace('.', ',')}
                   </span>
                 </button>
                 {/* Notificações */}

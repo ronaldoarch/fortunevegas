@@ -419,19 +419,20 @@ export default function Afiliado() {
               <div className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div className="bg-gray-900 rounded-2xl p-6 border border-gray-800">
-                    <p className="text-gray-400 text-sm mb-1">Total Ganho</p>
+                    <p className="text-gray-400 text-sm mb-1">Recompensas Disponíveis</p>
                     <p className="text-3xl font-bold text-[#d4af37]">
                       R$ {(stats.total_earned || 0).toFixed(2).replace('.', ',')}
                     </p>
+                    <p className="text-gray-500 text-xs mt-1">Não convertidas</p>
                   </div>
                   <div className="bg-gray-900 rounded-2xl p-6 border border-gray-800">
-                    <p className="text-gray-400 text-sm mb-1">CPA Ganho</p>
+                    <p className="text-gray-400 text-sm mb-1">CPA Disponível</p>
                     <p className="text-3xl font-bold text-[#d4af37]">
                       R$ {(stats.cpa_earned || 0).toFixed(2).replace('.', ',')}
                     </p>
                   </div>
                   <div className="bg-gray-900 rounded-2xl p-6 border border-gray-800">
-                    <p className="text-gray-400 text-sm mb-1">Revshare Ganho</p>
+                    <p className="text-gray-400 text-sm mb-1">Revshare Disponível</p>
                     <p className="text-3xl font-bold text-[#d4af37]">
                       R$ {(stats.revshare_earned || 0).toFixed(2).replace('.', ',')}
                     </p>
@@ -443,6 +444,72 @@ export default function Afiliado() {
                     </p>
                   </div>
                 </div>
+
+                {/* Botão para converter recompensas */}
+                {(stats.total_earned || 0) > 0 && (
+                  <div className="bg-gradient-to-br from-[#0a4d3e] to-[#0d5d4b] rounded-2xl p-6 border border-[#d4af37]/20">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <h3 className="text-xl font-bold text-white mb-1">Converter Recompensas</h3>
+                        <p className="text-gray-300 text-sm">
+                          Converta suas recompensas em saldo real para sacar
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-gray-300 text-sm">Disponível</p>
+                        <p className="text-2xl font-bold text-[#d4af37]">
+                          R$ {(stats.total_earned || 0).toFixed(2).replace('.', ',')}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        if (!confirm(`Deseja converter R$ ${(stats.total_earned || 0).toFixed(2).replace('.', ',')} em saldo real?`)) {
+                          return;
+                        }
+                        setLoading(true);
+                        setError('');
+                        try {
+                          const res = await fetch(`${API_URL}/api/public/affiliate/convert-rewards`, {
+                            method: 'POST',
+                            headers: {
+                              'Authorization': `Bearer ${token}`,
+                              'Content-Type': 'application/json'
+                            }
+                          });
+                          const data = await res.json();
+                          if (!res.ok) {
+                            throw new Error(data.detail || 'Erro ao converter recompensas');
+                          }
+                          alert(`Sucesso! R$ ${data.amount_converted.toFixed(2).replace('.', ',')} foram adicionados ao seu saldo.`);
+                          await loadData();
+                          // Atualizar usuário para refletir novo saldo
+                          if (window.location.pathname !== '/conta') {
+                            window.location.reload();
+                          }
+                        } catch (err: any) {
+                          setError(err.message || 'Erro ao converter recompensas');
+                        } finally {
+                          setLoading(false);
+                        }
+                      }}
+                      disabled={loading || (stats.total_earned || 0) <= 0}
+                      className="w-full bg-[#d4af37] hover:bg-[#ffd700] disabled:bg-gray-700 disabled:cursor-not-allowed text-black font-bold py-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+                    >
+                      {loading ? (
+                        <>
+                          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-black"></div>
+                          Convertendo...
+                        </>
+                      ) : (
+                        <>
+                          <DollarSign size={20} />
+                          Converter R$ {(stats.total_earned || 0).toFixed(2).replace('.', ',')} em Saldo Real
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
 
                 <div className="bg-gray-900 rounded-2xl p-6 border border-gray-800">
                   <h2 className="text-xl font-bold mb-4">Configurações da Comissão</h2>

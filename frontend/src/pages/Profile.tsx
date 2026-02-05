@@ -97,16 +97,27 @@ export default function Profile() {
               <div className="bg-[#d4af37]/20 p-3 rounded-lg">
                 <Wallet className="text-[#d4af37]" size={24} />
               </div>
-              <div>
-                <p className="text-gray-300 text-sm">Saldo Disponível (Sacável)</p>
-                <p className="text-3xl font-bold text-white">
-                  R$ {user.balance.toFixed(2).replace('.', ',')}
+              <div className="flex-1">
+                <p className="text-gray-300 text-sm mb-2">Saldo Total</p>
+                <p className="text-3xl font-bold text-white mb-3">
+                  R$ {((user.balance || 0) + (user.bonus_balance || 0)).toFixed(2).replace('.', ',')}
                 </p>
-                {(user.bonus_balance || 0) > 0 && (
-                  <p className="text-gray-400 text-sm mt-1">
-                    Bônus não sacável: R$ {(user.bonus_balance || 0).toFixed(2).replace('.', ',')}
-                  </p>
-                )}
+                <div className="space-y-1">
+                  {(user.bonus_balance || 0) > 0 && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-400 text-sm">Bônus:</span>
+                      <span className="text-[#d4af37] font-semibold">
+                        R$ {(user.bonus_balance || 0).toFixed(2).replace('.', ',')}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-400 text-sm">Disponível para saque:</span>
+                    <span className="text-white font-semibold">
+                      R$ {(user.balance || 0).toFixed(2).replace('.', ',')}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

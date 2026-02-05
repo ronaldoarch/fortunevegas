@@ -170,16 +170,50 @@ async def get_affiliate_stats(
     total_withdrawals = len(withdrawals)
     total_withdrawal_amount = sum(w.amount for w in withdrawals)
     
-    # Calcular comissões (CPA e Revshare)
-    # CPA: valor fixo por primeiro depósito (assumindo R$ 2,00 por padrão)
+    # Calcular comissões (CPA e Revshare) a partir das métricas não convertidas
+    import json
+    # Buscar todas as métricas do afiliado (sem filtro de período para conversão)
+    all_cpa_metrics = db.query(AffiliateMetric).filter(
+        AffiliateMetric.affiliate_id == affiliate.id,
+        AffiliateMetric.metric_type == AffiliateMetricType.FIRST_DEPOSIT
+    ).all()
+    
+    all_revshare_metrics = db.query(AffiliateMetric).filter(
+        AffiliateMetric.affiliate_id == affiliate.id,
+        AffiliateMetric.metric_type == AffiliateMetricType.BET
+    ).all()
+    
+    # Filtrar métricas não convertidas
+    cpa_earned = 0.0
+    for metric in all_cpa_metrics:
+        metadata = {}
+        if metric.metadata_json:
+            try:
+                metadata = json.loads(metric.metadata_json)
+            except:
+                pass
+        if not metadata.get("converted", False) and metric.amount:
+            cpa_earned += metric.amount
+    
+    revshare_earned = 0.0
+    for metric in all_revshare_metrics:
+        metadata = {}
+        if metric.metadata_json:
+            try:
+                metadata = json.loads(metric.metadata_json)
+            except:
+                pass
+        if not metadata.get("converted", False) and metric.amount:
+            revshare_earned += metric.amount
+    
+    # Calcular também valores totais (incluindo convertidos) para histórico do período
     cpa_rate = 2.0  # Pode vir do affiliate.metadata_json ou configuração
-    cpa_earned = total_ftds * cpa_rate
+    total_cpa_earned = total_ftds * cpa_rate
     
-    # Revshare: porcentagem sobre depósitos (assumindo 2% por padrão)
     revshare_rate = affiliate.commission_rate if affiliate.commission_rate > 0 else 2.0
-    revshare_earned = (total_deposit_amount * revshare_rate) / 100
+    total_revshare_earned = (total_deposit_amount * revshare_rate) / 100
     
-    total_earned = cpa_earned + revshare_earned
+    total_earned = cpa_earned + revshare_earned  # Apenas não convertidas (todas, não apenas do período)
     
     return {
         "new_subordinates": new_subordinates,
@@ -190,9 +224,11 @@ async def get_affiliate_stats(
         "total_ftd_amount": total_ftd_amount,
         "total_withdrawals": total_withdrawals,
         "total_withdrawal_amount": total_withdrawal_amount,
-        "cpa_earned": cpa_earned,
-        "revshare_earned": revshare_earned,
-        "total_earned": total_earned,
+        "cpa_earned": cpa_earned,  # Não convertido
+        "revshare_earned": revshare_earned,  # Não convertido
+        "total_earned": total_earned,  # Total não convertido (disponível para conversão)
+        "total_cpa_earned": total_cpa_earned,  # Total histórico (incluindo convertido)
+        "total_revshare_earned": total_revshare_earned,  # Total histórico (incluindo convertido)
         "cpa_rate": cpa_rate,
         "revshare_rate": revshare_rate,
         "status": "Ativo" if affiliate.is_active else "Inativo"
@@ -340,4 +376,87 @@ async def get_affiliate_metrics(
             }
             for m in metrics
         ]
+    }
+
+
+@router.post("/convert-rewards")
+async def convert_rewards_to_balance(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Converte recompensas de afiliado (CPA + Revshare) em saldo real sacável
+    """
+    if not current_user.affiliate_id:
+        raise HTTPException(
+            status_code=404,
+            detail="Usuário não está vinculado a um afiliado"
+        )
+    
+    affiliate = db.query(Affiliate).filter(Affiliate.id == current_user.affiliate_id).first()
+    if not affiliate:
+        raise HTTPException(
+            status_code=404,
+            detail="Afiliado não encontrado"
+        )
+    
+    # Buscar todas as métricas não convertidas do afiliado
+    # Métricas que geram recompensa: FIRST_DEPOSIT (CPA) e BET (Revshare)
+    import json
+    metrics = db.query(AffiliateMetric).filter(
+        AffiliateMetric.affiliate_id == affiliate.id,
+        AffiliateMetric.metric_type.in_([AffiliateMetricType.FIRST_DEPOSIT, AffiliateMetricType.BET])
+    ).all()
+    
+    # Filtrar métricas não convertidas (verificar metadata_json)
+    unconverted_metrics = []
+    total_rewards = 0.0
+    
+    for metric in metrics:
+        metadata = {}
+        if metric.metadata_json:
+            try:
+                metadata = json.loads(metric.metadata_json)
+            except:
+                pass
+        
+        # Verificar se já foi convertido
+        if not metadata.get("converted", False):
+            unconverted_metrics.append(metric)
+            if metric.amount:
+                total_rewards += metric.amount
+    
+    if total_rewards <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Não há recompensas disponíveis para conversão"
+        )
+    
+    # Adicionar saldo ao usuário afiliado
+    current_user.balance += total_rewards
+    
+    # Marcar métricas como convertidas
+    for metric in unconverted_metrics:
+        metadata = {}
+        if metric.metadata_json:
+            try:
+                metadata = json.loads(metric.metadata_json)
+            except:
+                pass
+        
+        metadata["converted"] = True
+        metadata["converted_at"] = datetime.utcnow().isoformat()
+        metadata["converted_by_user_id"] = current_user.id
+        metric.metadata_json = json.dumps(metadata)
+    
+    db.commit()
+    db.refresh(current_user)
+    
+    print(f"[AFFILIATE] Recompensas convertidas - Usuário: {current_user.id}, Valor: R$ {total_rewards:.2f}")
+    
+    return {
+        "success": True,
+        "amount_converted": total_rewards,
+        "new_balance": current_user.balance,
+        "message": f"R$ {total_rewards:.2f} convertidos para saldo real com sucesso"
     }
