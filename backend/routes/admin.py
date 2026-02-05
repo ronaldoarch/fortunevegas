@@ -2212,11 +2212,10 @@ async def get_webhook_url(
     import os
     webhook_base_url = os.getenv("WEBHOOK_BASE_URL", "")
     
-    # Se não tiver variável, tentar construir a partir do request
+    # Se não tiver variável, usar a URL padrão do backend
     if not webhook_base_url:
-        # Em produção, usar variável de ambiente
-        # Por padrão, assumir que está no mesmo domínio
-        webhook_base_url = "https://api.agenciamidas.com"  # Ajustar conforme necessário
+        # URL padrão do backend em produção
+        webhook_base_url = "https://api.fortunevegas.site"
     
     webhook_url = f"{webhook_base_url}/api/webhooks/gatebox"
     return {
