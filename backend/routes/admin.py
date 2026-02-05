@@ -1161,6 +1161,9 @@ async def _process_slot_transaction(request: dict, user: User, db: Session):
     if not txn_id:
         return {"status": 0, "msg": "INVALID_PARAMETER"}
     
+    # Converter txn_id para string para garantir compatibilidade
+    txn_id = str(txn_id)
+    
     # Verificar se transação já foi processada (idempotência)
     existing_bet = db.query(Bet).filter(Bet.transaction_id == txn_id).first()
     if existing_bet:
@@ -1238,6 +1241,9 @@ async def _process_live_transaction(request: dict, user: User, db: Session):
     if not txn_id:
         return {"status": 0, "msg": "INVALID_PARAMETER"}
     
+    # Converter txn_id para string para garantir compatibilidade
+    txn_id = str(txn_id)
+    
     # Verificar se transação já foi processada
     existing_bet = db.query(Bet).filter(Bet.transaction_id == txn_id).first()
     if existing_bet:
@@ -1311,6 +1317,9 @@ async def _process_sport_transaction(request: dict, user: User, db: Session):
     if not txn_id:
         return {"status": 0, "msg": "INVALID_PARAMETER"}
     
+    # Converter txn_id para string para garantir compatibilidade
+    txn_id = str(txn_id)
+    
     existing_bet = db.query(Bet).filter(Bet.transaction_id == txn_id).first()
     if existing_bet:
         return {
@@ -1382,6 +1391,9 @@ async def _process_lottery_transaction(request: dict, user: User, db: Session):
     
     if not txn_id:
         return {"status": 0, "msg": "INVALID_PARAMETER"}
+    
+    # Converter txn_id para string para garantir compatibilidade
+    txn_id = str(txn_id)
     
     existing_bet = db.query(Bet).filter(Bet.transaction_id == txn_id).first()
     if existing_bet:
