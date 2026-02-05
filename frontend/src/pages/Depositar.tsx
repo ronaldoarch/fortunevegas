@@ -158,11 +158,16 @@ export default function Depositar() {
     setCouponError('');
 
     try {
-      const response = await fetch(`${API_URL}/api/public/payments/validate-coupon?coupon_code=${encodeURIComponent(couponCode.trim().toUpperCase())}&deposit_amount=${amountValue}`, {
+      const response = await fetch(`${API_URL}/api/public/payments/validate-coupon`, {
         method: 'POST',
         headers: {
+          'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
-        }
+        },
+        body: JSON.stringify({
+          coupon_code: couponCode.trim().toUpperCase(),
+          deposit_amount: amountValue
+        })
       });
 
       const data = await response.json();

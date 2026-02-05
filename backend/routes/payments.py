@@ -1513,14 +1513,13 @@ def validate_and_calculate_coupon_bonus(
 
 @router.post("/validate-coupon")
 async def validate_coupon(
-    coupon_code: str,
-    deposit_amount: float,
+    request: schemas.CouponValidateRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Validar cupom e retornar valor do bônus"""
     coupon, bonus_amount, error = validate_and_calculate_coupon_bonus(
-        coupon_code, deposit_amount, current_user.id, db
+        request.coupon_code, request.deposit_amount, current_user.id, db
     )
     
     if error:
