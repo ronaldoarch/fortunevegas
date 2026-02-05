@@ -2,6 +2,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 from models import Base
 import os
+import json
 
 # Obter DATABASE_URL e normalizar postgres:// para postgresql://
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./fortunevegas.db")
