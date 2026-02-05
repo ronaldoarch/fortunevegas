@@ -28,17 +28,21 @@ if not cors_origins:
         "http://fortunevegas.site",
         "https://www.fortunevegas.site",
         "http://www.fortunevegas.site",
-        "https://*.agenciamidas.com",
-        "http://*.agenciamidas.com",
+        "https://api.fortunevegas.site",
+        "http://api.fortunevegas.site",
     ]
+
+# Regex para aceitar qualquer subdomínio de fortunevegas.site e agenciamidas.com
+cors_regex = r"https?://(.*\.)?(fortunevegas\.site|agenciamidas\.com)(/.*)?$"
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
-    allow_origin_regex=r"https?://(.*\.)?(fortunevegas\.site|agenciamidas\.com)",
+    allow_origin_regex=cors_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # Include routers
