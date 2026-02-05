@@ -540,7 +540,27 @@ async def update_igamewin_agent(
     if not agent:
         raise HTTPException(status_code=404, detail="IGameWin agent not found")
     
+    # Guardar RTP anterior para comparar
+    old_rtp = agent.rtp
+    
     update_data = agent_data.model_dump(exclude_unset=True)
+    
+    # Se RTP está sendo atualizado, sincronizar com IGameWin
+    if "rtp" in update_data and update_data["rtp"] != old_rtp:
+        new_rtp = update_data["rtp"]
+        api = get_igamewin_api(db)
+        if api:
+            print(f"[IGAMEWIN] Atualizando RTP de {old_rtp}% para {new_rtp}% na IGameWin...")
+            rtp_result = await api.update_rtp(new_rtp)
+            if rtp_result:
+                print(f"[IGAMEWIN] ✅ RTP atualizado com sucesso na IGameWin: {rtp_result}")
+            else:
+                print(f"[IGAMEWIN] ⚠️ Aviso: Não foi possível atualizar RTP na IGameWin: {api.last_error}")
+                # Continuar mesmo assim - o RTP será salvo localmente
+        else:
+            print(f"[IGAMEWIN] ⚠️ Aviso: Não foi possível obter instância da API IGameWin para atualizar RTP")
+    
+    # Atualizar campos no banco de dados
     for field, value in update_data.items():
         setattr(agent, field, value)
     

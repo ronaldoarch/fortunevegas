@@ -178,6 +178,57 @@ class IGameWinAPI:
             return launch_url
         
         return None
+    
+    async def update_rtp(self, rtp: float) -> Optional[Dict[str, Any]]:
+        """Update RTP (Return to Player) for the agent - follows IGameWin API documentation
+        
+        Tenta diferentes métodos da API IGameWin para atualizar o RTP:
+        1. agent_setting (método mais comum)
+        2. rtp_update (método alternativo)
+        3. game_setting (método alternativo)
+        """
+        # Método 1: agent_setting (padrão comum em APIs de jogos)
+        payload1 = {
+            "method": "agent_setting",
+            "agent_code": self.agent_code,
+            "agent_token": self.agent_key,
+            "rtp": rtp
+        }
+        
+        data1 = await self._post(payload1)
+        if data1 and data1.get("status") == 1:
+            print(f"[IGAMEWIN] RTP atualizado usando método 'agent_setting'")
+            return data1
+        
+        # Método 2: rtp_update (método alternativo)
+        payload2 = {
+            "method": "rtp_update",
+            "agent_code": self.agent_code,
+            "agent_token": self.agent_key,
+            "rtp": rtp
+        }
+        
+        data2 = await self._post(payload2)
+        if data2 and data2.get("status") == 1:
+            print(f"[IGAMEWIN] RTP atualizado usando método 'rtp_update'")
+            return data2
+        
+        # Método 3: game_setting (método alternativo)
+        payload3 = {
+            "method": "game_setting",
+            "agent_code": self.agent_code,
+            "agent_token": self.agent_key,
+            "rtp": rtp
+        }
+        
+        data3 = await self._post(payload3)
+        if data3 and data3.get("status") == 1:
+            print(f"[IGAMEWIN] RTP atualizado usando método 'game_setting'")
+            return data3
+        
+        # Se nenhum método funcionou, retornar None
+        print(f"[IGAMEWIN] ⚠️ Nenhum método de atualização de RTP funcionou. Último erro: {self.last_error}")
+        return None
 
 
 def get_igamewin_api(db: Session) -> Optional[IGameWinAPI]:
