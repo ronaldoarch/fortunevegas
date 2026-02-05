@@ -15,7 +15,8 @@ from models import (
     User, Deposit, Withdrawal, FTD, Gateway, IGameWinAgent, FTDSettings,
     TransactionStatus, UserRole, Bet, BetStatus, Notification, NotificationType,
     GameLayout, ProviderLayout, Theme, Affiliate,
-    IGameWinProviderConfig, TrackingConfig, TrackingType
+    IGameWinProviderConfig, TrackingConfig, TrackingType,
+    SubAffiliate, ManagerSettings
 )
 from schemas import (
     WebhookCreate,
