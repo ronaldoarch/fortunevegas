@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ArrowLeft, Wallet, Copy, Check } from 'lucide-react';
@@ -17,9 +17,14 @@ export default function Depositar() {
     qr_code: string;
     qr_code_base64: string;
     transaction_id: string;
+    deposit_id?: number;
   } | null>(null);
   const [copied, setCopied] = useState(false);
   const [settings, setSettings] = useState({ min_amount: 10.0, max_amount: 0.0 });
+  const [depositStatus, setDepositStatus] = useState<'pending' | 'checking' | 'approved' | 'error'>('pending');
+  const { refreshUser } = useAuth();
+  const checkIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const depositStatusRef = useRef<'pending' | 'checking' | 'approved' | 'error'>('pending');
 
   useEffect(() => {
     if (!token || !user) {
@@ -35,6 +40,100 @@ export default function Depositar() {
         setSettings({ min_amount: 10.0, max_amount: 0.0 });
       });
   }, [token, user, navigate]);
+
+  // Verificação automática do status do depósito
+  useEffect(() => {
+    if (!pixData?.deposit_id || !token) {
+      // Limpar intervalo se não houver depósito pendente
+      if (checkIntervalRef.current) {
+        clearInterval(checkIntervalRef.current);
+        checkIntervalRef.current = null;
+      }
+      return;
+    }
+
+    let isMounted = true;
+
+    // Função para verificar status
+    const checkStatus = async () => {
+      // Verificar se já foi aprovado antes de fazer a requisição
+      if (depositStatusRef.current === 'approved') {
+        // Se já foi aprovado, parar verificação
+        if (checkIntervalRef.current) {
+          clearInterval(checkIntervalRef.current);
+          checkIntervalRef.current = null;
+        }
+        return;
+      }
+
+      try {
+        if (isMounted) {
+          depositStatusRef.current = 'checking';
+          setDepositStatus('checking');
+        }
+        
+        const response = await fetch(`${API_URL}/api/public/payments/deposit/${pixData.deposit_id}/check-status`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        const data = await response.json();
+
+        if (!isMounted) return;
+
+        if (response.ok && data.balance_credited) {
+          // Saldo foi creditado!
+          depositStatusRef.current = 'approved';
+          setDepositStatus('approved');
+          if (refreshUser) {
+            await refreshUser();
+          }
+          // Parar verificação
+          if (checkIntervalRef.current) {
+            clearInterval(checkIntervalRef.current);
+            checkIntervalRef.current = null;
+          }
+        } else if (data.gatebox_status) {
+          const statusLower = data.gatebox_status.toLowerCase();
+          if (statusLower === 'paid' || statusLower === 'confirmed' || statusLower === 'approved' || statusLower === 'completed') {
+            // Pagamento confirmado mas ainda não creditado (pode ser delay)
+            depositStatusRef.current = 'checking';
+            setDepositStatus('checking');
+          } else {
+            depositStatusRef.current = 'pending';
+            setDepositStatus('pending');
+          }
+        } else {
+          depositStatusRef.current = 'pending';
+          setDepositStatus('pending');
+        }
+      } catch (err) {
+        console.error('Erro ao verificar status:', err);
+        if (isMounted) {
+          depositStatusRef.current = 'error';
+          setDepositStatus('error');
+        }
+      }
+    };
+
+    // Verificar imediatamente após um pequeno delay
+    const initialTimeout = setTimeout(checkStatus, 2000);
+
+    // Verificar a cada 10 segundos
+    checkIntervalRef.current = setInterval(checkStatus, 10000);
+
+    // Limpar intervalo ao desmontar
+    return () => {
+      isMounted = false;
+      if (checkIntervalRef.current) {
+        clearInterval(checkIntervalRef.current);
+        checkIntervalRef.current = null;
+      }
+      clearTimeout(initialTimeout);
+    };
+  }, [pixData?.deposit_id, token, refreshUser]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -192,8 +291,11 @@ export default function Depositar() {
         setPixData({
           qr_code: pixCode,
           qr_code_base64: finalQrCodeBase64,
-          transaction_id: data.transaction_id || ''
+          transaction_id: data.transaction_id || '',
+          deposit_id: data.id
         });
+        depositStatusRef.current = 'pending';
+        setDepositStatus('pending');
       } else {
         setError(data.detail || 'Erro ao gerar código PIX. Tente novamente.');
       }
@@ -356,8 +458,22 @@ export default function Depositar() {
                   <strong>Valor:</strong> R$ {amount}
                 </p>
                 <p className="text-green-300 text-sm mt-1">
-                  <strong>Status:</strong> Aguardando pagamento
+                  <strong>Status:</strong>{' '}
+                  {depositStatus === 'approved' && '✅ Pagamento confirmado e saldo creditado!'}
+                  {depositStatus === 'checking' && '⏳ Verificando pagamento...'}
+                  {depositStatus === 'pending' && 'Aguardando pagamento'}
+                  {depositStatus === 'error' && 'Erro ao verificar status'}
                 </p>
+                {depositStatus === 'checking' && (
+                  <p className="text-yellow-300 text-xs mt-2">
+                    Verificando automaticamente a cada 10 segundos...
+                  </p>
+                )}
+                {depositStatus === 'approved' && user && (
+                  <p className="text-green-300 text-sm mt-2">
+                    <strong>Novo saldo:</strong> R$ {user.balance.toFixed(2).replace('.', ',')}
+                  </p>
+                )}
               </div>
 
               <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
@@ -375,9 +491,16 @@ export default function Depositar() {
 
               <button
                 onClick={() => {
+                  // Limpar intervalo antes de resetar
+                  if (checkIntervalRef.current) {
+                    clearInterval(checkIntervalRef.current);
+                    checkIntervalRef.current = null;
+                  }
                   setPixData(null);
                   setAmount('');
                   setError('');
+                  depositStatusRef.current = 'pending';
+                  setDepositStatus('pending');
                 }}
                 className="w-full bg-gray-700 hover:bg-gray-600 text-white font-semibold py-3 rounded-lg transition-colors"
               >

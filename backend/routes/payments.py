@@ -533,19 +533,36 @@ async def webhook_gatebox(request: Request, db: Session = Depends(get_db)):
             except:
                 data = {}
         
-        print(f"[WEBHOOK] Webhook Gatebox recebido: {json.dumps(data, indent=2)}")
+        print(f"[WEBHOOK] Webhook Gatebox recebido (raw): {json.dumps(data, indent=2)}")
         
         # Verificar se os dados estão dentro de um campo "data" ou similar
+        # A Gatebox pode enviar: {"statusCode": 200, "data": {...}} ou diretamente {...}
+        original_data = data.copy()
         if "data" in data and isinstance(data["data"], dict):
             inner_data = data["data"]
-            # Mesclar dados internos com dados externos
+            # Mesclar dados internos com dados externos (inner_data tem prioridade)
             data = {**data, **inner_data}
+            print(f"[WEBHOOK] Dados extraídos do campo 'data': {json.dumps(inner_data, indent=2)}")
         
         # Identificar o tipo de evento
-        event_type = data.get("eventType") or data.get("event_type") or data.get("type") or data.get("event")
-        status_transaction = data.get("status") or data.get("statusTransaction") or data.get("status_transaction")
+        event_type = (
+            data.get("eventType") or 
+            data.get("event_type") or 
+            data.get("type") or 
+            data.get("event") or
+            original_data.get("eventType") or
+            original_data.get("event_type")
+        )
+        status_transaction = (
+            data.get("status") or 
+            data.get("statusTransaction") or 
+            data.get("status_transaction") or
+            original_data.get("status") or
+            original_data.get("statusTransaction")
+        )
         
         print(f"[WEBHOOK] Event type identificado: {event_type}, Status: {status_transaction}")
+        print(f"[WEBHOOK] Dados finais processados: {json.dumps(data, indent=2)}")
         
         # Se não tiver eventType explícito, tentar identificar pelo contexto
         if not event_type:
@@ -587,18 +604,34 @@ async def _process_pix_cashin(data: dict, db: Session):
     # Processar webhook
     external_id = data.get("externalId") or data.get("external_id")
     transaction_id = data.get("transactionId") or data.get("transaction_id") or data.get("id")
+    uuid_gatebox = data.get("uuid")  # UUID retornado pela Gatebox
     status_transaction = data.get("status") or data.get("statusTransaction") or data.get("status_transaction")
     amount = data.get("amount") or data.get("value")
     end_to_end = data.get("endToEnd") or data.get("end_to_end")
     
-    print(f"[WEBHOOK] Processando PIX Cash-in - external_id: {external_id}, status: {status_transaction}")
+    print(f"[WEBHOOK] Processando PIX Cash-in - external_id: {external_id}, uuid: {uuid_gatebox}, transaction_id: {transaction_id}, status: {status_transaction}")
     
-    # Buscar depósito pelo external_id
+    # Buscar depósito pelo external_id (mais confiável)
     deposit = None
     if external_id:
         deposit = db.query(Deposit).filter(Deposit.external_id == external_id).first()
+        if deposit:
+            print(f"[WEBHOOK] Depósito encontrado pelo external_id: {external_id}")
     
-    # Se não encontrou pelo external_id, tentar pelo transaction_id no metadata
+    # Se não encontrou pelo external_id, tentar pelo UUID no metadata
+    if not deposit and uuid_gatebox:
+        deposits = db.query(Deposit).filter(
+            Deposit.status == TransactionStatus.PENDING
+        ).all()
+        for d in deposits:
+            metadata = json.loads(d.metadata_json) if d.metadata_json else {}
+            gatebox_response = metadata.get("gatebox_response") or {}
+            if gatebox_response.get("uuid") == uuid_gatebox:
+                deposit = d
+                print(f"[WEBHOOK] Depósito encontrado pelo UUID: {uuid_gatebox}")
+                break
+    
+    # Se ainda não encontrou, tentar pelo transaction_id no metadata
     if not deposit and transaction_id:
         deposits = db.query(Deposit).filter(
             Deposit.status == TransactionStatus.PENDING
@@ -607,7 +640,23 @@ async def _process_pix_cashin(data: dict, db: Session):
             metadata = json.loads(d.metadata_json) if d.metadata_json else {}
             if metadata.get("transaction_id") == transaction_id or metadata.get("end_to_end") == end_to_end:
                 deposit = d
+                print(f"[WEBHOOK] Depósito encontrado pelo transaction_id: {transaction_id}")
                 break
+    
+    # Última tentativa: buscar todos os depósitos pendentes e verificar pelo identifier
+    if not deposit:
+        identifier = data.get("identifier")
+        if identifier:
+            deposits = db.query(Deposit).filter(
+                Deposit.status == TransactionStatus.PENDING
+            ).all()
+            for d in deposits:
+                metadata = json.loads(d.metadata_json) if d.metadata_json else {}
+                gatebox_response = metadata.get("gatebox_response") or {}
+                if gatebox_response.get("identifier") == identifier:
+                    deposit = d
+                    print(f"[WEBHOOK] Depósito encontrado pelo identifier: {identifier}")
+                    break
     
     if not deposit:
         print(f"[WEBHOOK] Depósito não encontrado - external_id: {external_id}, transaction_id: {transaction_id}")
