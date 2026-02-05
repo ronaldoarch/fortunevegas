@@ -8,7 +8,7 @@ from sqlalchemy import desc, or_
 from database import get_db
 from models import User, Deposit, Withdrawal, Gateway, TransactionStatus, FTDSettings, WebhookEventType, Bet, BetStatus, Notification, Coupon, CouponUse, Promotion, PromotionUse, PromotionType
 from gatebox_api import GateboxAPI
-from schemas import DepositResponse, WithdrawalResponse, DepositPixRequest, WithdrawalPixRequest, CouponValidateRequest
+from schemas import DepositResponse, WithdrawalResponse, DepositPixRequest, WithdrawalPixRequest, CouponValidateRequest, CouponResponse
 from dependencies import get_current_user
 from webhook_dispatcher import dispatch_webhook
 from datetime import datetime
@@ -1635,13 +1635,13 @@ def validate_and_calculate_coupon_bonus(
 
 @router.post("/validate-coupon")
 async def validate_coupon(
-    request: schemas.CouponValidateRequest,
+    request: CouponValidateRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Validar cupom e retornar valor do bônus"""
     coupon, bonus_amount, error = validate_and_calculate_coupon_bonus(
-        request.coupon_code, request.deposit_amount, current_user.id, db
+        request.code, request.deposit_amount, current_user.id, db
     )
     
     if error:
@@ -1651,7 +1651,6 @@ async def validate_coupon(
             "message": error
         }
     
-    from schemas import CouponResponse
     return {
         "valid": True,
         "coupon": CouponResponse.model_validate(coupon),
