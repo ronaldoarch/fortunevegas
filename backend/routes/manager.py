@@ -7,7 +7,7 @@ from sqlalchemy import func
 from typing import Optional, List
 from datetime import datetime, timedelta
 from database import get_db
-from models import User, Deposit, Withdrawal, Affiliate, FTD, SubAffiliate, ManagerSettings
+from models import User, Deposit, Withdrawal, Affiliate, FTD, SubAffiliate, ManagerSettings, AffiliateMetric, AffiliateMetricType
 from dependencies import get_current_user
 from schemas import SubAffiliateCreate, SubAffiliateResponse, ManagerSettingsResponse
 from auth import get_password_hash
@@ -289,4 +289,86 @@ async def get_manager_commission(
         "cpa_earned": cpa_earned,
         "revshare_earned": revshare_earned,
         "revshare_rate": settings.revshare_rate
+    }
+
+
+@router.get("/metrics")
+async def get_manager_metrics(
+    period: Optional[str] = Query("month", description="week, month, all"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Retorna métricas detalhadas de rastreamento do gerente e seus sub-afiliados
+    """
+    if current_user.role not in ['agent', 'manager']:
+        raise HTTPException(
+            status_code=403,
+            detail="Acesso negado. Apenas gerentes podem acessar este painel."
+        )
+    
+    settings = get_manager_settings(db, current_user.id)
+    
+    # Calcular período
+    now = datetime.utcnow()
+    if period == "week":
+        start_date = now - timedelta(days=7)
+    elif period == "last_week":
+        start_date = now - timedelta(days=14)
+        end_date = now - timedelta(days=7)
+    elif period == "last_month":
+        start_date = now - timedelta(days=60)
+        end_date = now - timedelta(days=30)
+    else:  # month ou all
+        start_date = now - timedelta(days=30)
+        end_date = None
+    
+    # Buscar métricas do gerente e sub-afiliados
+    metrics_query = db.query(AffiliateMetric).filter(
+        AffiliateMetric.manager_id == current_user.id
+    )
+    
+    if period == "last_week" or period == "last_month":
+        metrics_query = metrics_query.filter(
+            AffiliateMetric.created_at >= start_date,
+            AffiliateMetric.created_at < end_date
+        )
+    elif period != "all":
+        metrics_query = metrics_query.filter(AffiliateMetric.created_at >= start_date)
+    
+    metrics = metrics_query.order_by(AffiliateMetric.created_at.desc()).all()
+    
+    # Buscar sub-afiliados
+    sub_affiliates = db.query(SubAffiliate).filter(SubAffiliate.manager_id == current_user.id).all()
+    
+    # Métricas por sub-afiliado
+    metrics_by_sub = {}
+    for sub in sub_affiliates:
+        sub_metrics = [m for m in metrics if m.sub_affiliate_id == sub.id]
+        metrics_by_sub[sub.id] = {
+            "sub_affiliate_id": sub.id,
+            "affiliate_code": sub.affiliate.code if sub.affiliate else None,
+            "clicks": len([m for m in sub_metrics if m.metric_type == AffiliateMetricType.CLICK]),
+            "registrations": len([m for m in sub_metrics if m.metric_type == AffiliateMetricType.REGISTRATION]),
+            "first_deposits": len([m for m in sub_metrics if m.metric_type == AffiliateMetricType.FIRST_DEPOSIT]),
+            "deposits": len([m for m in sub_metrics if m.metric_type == AffiliateMetricType.DEPOSIT]),
+            "deposit_amount": sum(m.amount or 0 for m in sub_metrics if m.metric_type == AffiliateMetricType.DEPOSIT)
+        }
+    
+    # Totais
+    total_clicks = len([m for m in metrics if m.metric_type == AffiliateMetricType.CLICK])
+    total_registrations = len([m for m in metrics if m.metric_type == AffiliateMetricType.REGISTRATION])
+    total_first_deposits = len([m for m in metrics if m.metric_type == AffiliateMetricType.FIRST_DEPOSIT])
+    total_deposits = len([m for m in metrics if m.metric_type == AffiliateMetricType.DEPOSIT])
+    total_deposit_amount = sum(m.amount or 0 for m in metrics if m.metric_type == AffiliateMetricType.DEPOSIT)
+    
+    return {
+        "period": period,
+        "total_clicks": total_clicks,
+        "total_registrations": total_registrations,
+        "total_first_deposits": total_first_deposits,
+        "total_deposits": total_deposits,
+        "total_deposit_amount": total_deposit_amount,
+        "sub_affiliates_count": len(sub_affiliates),
+        "metrics_by_sub_affiliate": list(metrics_by_sub.values())
     }

@@ -16,7 +16,7 @@ from models import (
     TransactionStatus, UserRole, Bet, BetStatus, Notification, NotificationType,
     GameLayout, ProviderLayout, Theme, Affiliate,
     IGameWinProviderConfig, TrackingConfig, TrackingType,
-    SubAffiliate, ManagerSettings
+    SubAffiliate, ManagerSettings, AffiliateMetric, AffiliateMetricType
 )
 from schemas import (
     WebhookCreate,
@@ -34,7 +34,8 @@ from schemas import (
     ThemeResponse, ThemeCreate, ThemeUpdate,
     AffiliateResponse, AffiliateCreate, AffiliateUpdate,
     IGameWinProviderConfigResponse, IGameWinProviderConfigCreate, IGameWinProviderConfigUpdate,
-    TrackingConfigResponse, TrackingConfigCreate, TrackingConfigUpdate
+    TrackingConfigResponse, TrackingConfigCreate, TrackingConfigUpdate,
+    AffiliateMetricResponse, AffiliateMetricCreate
 )
 from auth import get_password_hash
 from igamewin_api import get_igamewin_api

@@ -509,3 +509,28 @@ class WebhookResponse(WebhookBase):
     
     class Config:
         from_attributes = True
+
+
+# Affiliate Metrics Schemas
+class AffiliateMetricBase(BaseModel):
+    metric_type: str  # click, registration, first_deposit, deposit, withdrawal, bet
+    user_id: Optional[int] = None
+    amount: Optional[float] = None
+    metadata_json: Optional[str] = None
+
+
+class AffiliateMetricCreate(AffiliateMetricBase):
+    affiliate_id: Optional[int] = None
+    manager_id: Optional[int] = None
+    sub_affiliate_id: Optional[int] = None
+
+
+class AffiliateMetricResponse(AffiliateMetricBase):
+    id: int
+    affiliate_id: Optional[int] = None
+    manager_id: Optional[int] = None
+    sub_affiliate_id: Optional[int] = None
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True

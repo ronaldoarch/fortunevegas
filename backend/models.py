@@ -18,6 +18,7 @@ class UserRole(str, enum.Enum):
     ADMIN = "admin"
     USER = "user"
     AGENT = "agent"
+    MANAGER = "manager"
 
 
 class User(Base):
@@ -346,6 +347,36 @@ class TrackingConfig(Base):
     metadata_json = Column(Text)  # JSON com configurações adicionais
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class AffiliateMetricType(str, enum.Enum):
+    CLICK = "click"  # Clique no link de afiliado
+    REGISTRATION = "registration"  # Registro através do link
+    FIRST_DEPOSIT = "first_deposit"  # Primeiro depósito (FTD)
+    DEPOSIT = "deposit"  # Depósito qualquer
+    WITHDRAWAL = "withdrawal"  # Saque
+    BET = "bet"  # Aposta
+
+
+class AffiliateMetric(Base):
+    """Métricas de rastreamento para afiliados, gerentes e sub-afiliados"""
+    __tablename__ = "affiliate_metrics"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    affiliate_id = Column(Integer, ForeignKey("affiliates.id"), nullable=True, index=True)  # Afiliado ou sub-afiliado
+    manager_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)  # Gerente (se for métrica de sub-afiliado)
+    sub_affiliate_id = Column(Integer, ForeignKey("sub_affiliates.id"), nullable=True, index=True)  # Sub-afiliado específico
+    metric_type = Column(Enum(AffiliateMetricType), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # Usuário relacionado (se aplicável)
+    amount = Column(Float, nullable=True)  # Valor monetário (para depósitos, saques, etc)
+    metadata_json = Column(Text)  # JSON com dados adicionais (IP, user agent, referrer, etc)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    
+    # Relationships
+    affiliate = relationship("Affiliate", foreign_keys=[affiliate_id])
+    manager = relationship("User", foreign_keys=[manager_id])
+    sub_affiliate = relationship("SubAffiliate", foreign_keys=[sub_affiliate_id])
+    user = relationship("User", foreign_keys=[user_id])
 
 
 class WebhookEventType(str, enum.Enum):

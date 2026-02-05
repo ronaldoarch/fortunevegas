@@ -99,3 +99,59 @@ CREATE TABLE IF NOT EXISTS tracking_configs (
 
 CREATE INDEX IF NOT EXISTS idx_tracking_configs_type ON tracking_configs(type);
 CREATE INDEX IF NOT EXISTS idx_tracking_configs_is_active ON tracking_configs(is_active);
+
+-- 8. Criar tabela affiliate_metrics (se não existir)
+CREATE TABLE IF NOT EXISTS affiliate_metrics (
+    id SERIAL PRIMARY KEY,
+    affiliate_id INTEGER,
+    manager_id INTEGER,
+    sub_affiliate_id INTEGER,
+    metric_type VARCHAR(50) NOT NULL,
+    user_id INTEGER,
+    amount FLOAT,
+    metadata_json TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_affiliate_metrics_affiliate_id ON affiliate_metrics(affiliate_id);
+CREATE INDEX IF NOT EXISTS idx_affiliate_metrics_manager_id ON affiliate_metrics(manager_id);
+CREATE INDEX IF NOT EXISTS idx_affiliate_metrics_sub_affiliate_id ON affiliate_metrics(sub_affiliate_id);
+CREATE INDEX IF NOT EXISTS idx_affiliate_metrics_metric_type ON affiliate_metrics(metric_type);
+CREATE INDEX IF NOT EXISTS idx_affiliate_metrics_created_at ON affiliate_metrics(created_at);
+CREATE INDEX IF NOT EXISTS idx_affiliate_metrics_user_id ON affiliate_metrics(user_id);
+
+-- Adicionar foreign keys
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'fk_affiliate_metrics_affiliate'
+    ) THEN
+        ALTER TABLE affiliate_metrics ADD CONSTRAINT fk_affiliate_metrics_affiliate 
+            FOREIGN KEY (affiliate_id) REFERENCES affiliates(id) ON DELETE CASCADE;
+    END IF;
+    
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'fk_affiliate_metrics_manager'
+    ) THEN
+        ALTER TABLE affiliate_metrics ADD CONSTRAINT fk_affiliate_metrics_manager 
+            FOREIGN KEY (manager_id) REFERENCES users(id) ON DELETE CASCADE;
+    END IF;
+    
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'fk_affiliate_metrics_sub_affiliate'
+    ) THEN
+        ALTER TABLE affiliate_metrics ADD CONSTRAINT fk_affiliate_metrics_sub_affiliate 
+            FOREIGN KEY (sub_affiliate_id) REFERENCES sub_affiliates(id) ON DELETE CASCADE;
+    END IF;
+    
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'fk_affiliate_metrics_user'
+    ) THEN
+        ALTER TABLE affiliate_metrics ADD CONSTRAINT fk_affiliate_metrics_user 
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+    END IF;
+END $$;

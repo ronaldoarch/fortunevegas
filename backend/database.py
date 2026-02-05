@@ -145,6 +145,76 @@ def run_migrations():
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_tracking_configs_type ON tracking_configs(type)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_tracking_configs_is_active ON tracking_configs(is_active)"))
             
+            # 8. Criar tabela affiliate_metrics
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS affiliate_metrics (
+                    id SERIAL PRIMARY KEY,
+                    affiliate_id INTEGER,
+                    manager_id INTEGER,
+                    sub_affiliate_id INTEGER,
+                    metric_type VARCHAR(50) NOT NULL,
+                    user_id INTEGER,
+                    amount FLOAT,
+                    metadata_json TEXT,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_affiliate_metrics_affiliate_id ON affiliate_metrics(affiliate_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_affiliate_metrics_manager_id ON affiliate_metrics(manager_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_affiliate_metrics_sub_affiliate_id ON affiliate_metrics(sub_affiliate_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_affiliate_metrics_metric_type ON affiliate_metrics(metric_type)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_affiliate_metrics_created_at ON affiliate_metrics(created_at)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_affiliate_metrics_user_id ON affiliate_metrics(user_id)"))
+            
+            # Adicionar foreign keys
+            result = conn.execute(text("""
+                SELECT constraint_name 
+                FROM information_schema.table_constraints 
+                WHERE constraint_name = 'fk_affiliate_metrics_affiliate'
+            """))
+            if result.fetchone() is None:
+                conn.execute(text("""
+                    ALTER TABLE affiliate_metrics 
+                    ADD CONSTRAINT fk_affiliate_metrics_affiliate 
+                    FOREIGN KEY (affiliate_id) REFERENCES affiliates(id) ON DELETE CASCADE
+                """))
+            
+            result = conn.execute(text("""
+                SELECT constraint_name 
+                FROM information_schema.table_constraints 
+                WHERE constraint_name = 'fk_affiliate_metrics_manager'
+            """))
+            if result.fetchone() is None:
+                conn.execute(text("""
+                    ALTER TABLE affiliate_metrics 
+                    ADD CONSTRAINT fk_affiliate_metrics_manager 
+                    FOREIGN KEY (manager_id) REFERENCES users(id) ON DELETE CASCADE
+                """))
+            
+            result = conn.execute(text("""
+                SELECT constraint_name 
+                FROM information_schema.table_constraints 
+                WHERE constraint_name = 'fk_affiliate_metrics_sub_affiliate'
+            """))
+            if result.fetchone() is None:
+                conn.execute(text("""
+                    ALTER TABLE affiliate_metrics 
+                    ADD CONSTRAINT fk_affiliate_metrics_sub_affiliate 
+                    FOREIGN KEY (sub_affiliate_id) REFERENCES sub_affiliates(id) ON DELETE CASCADE
+                """))
+            
+            result = conn.execute(text("""
+                SELECT constraint_name 
+                FROM information_schema.table_constraints 
+                WHERE constraint_name = 'fk_affiliate_metrics_user'
+            """))
+            if result.fetchone() is None:
+                conn.execute(text("""
+                    ALTER TABLE affiliate_metrics 
+                    ADD CONSTRAINT fk_affiliate_metrics_user 
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+                """))
+            
             # 8. Criar tabela webhooks
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS webhooks (

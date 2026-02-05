@@ -9,13 +9,15 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 export default function Gerente() {
   const navigate = useNavigate();
   const { user, token } = useAuth();
-  const [activeTab, setActiveTab] = useState<'comecar' | 'subs' | 'desempenho' | 'comissao'>('comecar');
+  const [activeTab, setActiveTab] = useState<'comecar' | 'subs' | 'desempenho' | 'comissao' | 'metricas'>('comecar');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [settings, setSettings] = useState<any>(null);
   const [subAffiliates, setSubAffiliates] = useState<any[]>([]);
   const [performance, setPerformance] = useState<any>(null);
   const [commission, setCommission] = useState<any>(null);
+  const [metrics, setMetrics] = useState<any>(null);
+  const [metricsPeriod, setMetricsPeriod] = useState<'week' | 'last_week' | 'month' | 'last_month' | 'all'>('month');
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
     username: '',
@@ -36,7 +38,7 @@ export default function Gerente() {
       return;
     }
     loadData();
-  }, [token, user, navigate]);
+  }, [token, user, navigate, metricsPeriod]);
 
   const loadData = async () => {
     setLoading(true);
@@ -72,6 +74,14 @@ export default function Gerente() {
       });
       if (commRes.ok) {
         setCommission(await commRes.json());
+      }
+
+      // Carregar métricas
+      const metricsRes = await fetch(`${API_URL}/api/public/manager/metrics?period=${metricsPeriod}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (metricsRes.ok) {
+        setMetrics(await metricsRes.json());
       }
     } catch (err: any) {
       setError(err.message);
@@ -181,6 +191,16 @@ export default function Gerente() {
             }`}
           >
             Comissão
+          </button>
+          <button
+            onClick={() => setActiveTab('metricas')}
+            className={`px-4 py-2 rounded-lg font-semibold transition-colors whitespace-nowrap ${
+              activeTab === 'metricas'
+                ? 'bg-[#d4af37] text-black'
+                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+            }`}
+          >
+            Métricas
           </button>
         </div>
 
@@ -449,6 +469,131 @@ export default function Gerente() {
                     </div>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* Métricas Tab */}
+            {activeTab === 'metricas' && metrics && (
+              <div className="space-y-4">
+                {/* Filtros de período */}
+                <div className="flex gap-2 overflow-x-auto">
+                  <button
+                    onClick={() => setMetricsPeriod('week')}
+                    className={`px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap ${
+                      metricsPeriod === 'week'
+                        ? 'bg-[#0a4d3e] text-white'
+                        : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                    }`}
+                  >
+                    Esta Semana
+                  </button>
+                  <button
+                    onClick={() => setMetricsPeriod('last_week')}
+                    className={`px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap ${
+                      metricsPeriod === 'last_week'
+                        ? 'bg-[#0a4d3e] text-white'
+                        : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                    }`}
+                  >
+                    Última Semana
+                  </button>
+                  <button
+                    onClick={() => setMetricsPeriod('month')}
+                    className={`px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap ${
+                      metricsPeriod === 'month'
+                        ? 'bg-[#0a4d3e] text-white'
+                        : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                    }`}
+                  >
+                    Este Mês
+                  </button>
+                  <button
+                    onClick={() => setMetricsPeriod('last_month')}
+                    className={`px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap ${
+                      metricsPeriod === 'last_month'
+                        ? 'bg-[#0a4d3e] text-white'
+                        : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                    }`}
+                  >
+                    Mês passado
+                  </button>
+                  <button
+                    onClick={() => setMetricsPeriod('all')}
+                    className={`px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap ${
+                      metricsPeriod === 'all'
+                        ? 'bg-[#0a4d3e] text-white'
+                        : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                    }`}
+                  >
+                    Todos
+                  </button>
+                </div>
+
+                <div className="bg-gray-900 rounded-2xl p-6 border border-gray-800">
+                  <h2 className="text-xl font-bold mb-4">Métricas Gerais</h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                    <div className="bg-gray-800 rounded-lg p-4">
+                      <p className="text-gray-400 text-sm mb-1">Total de Cliques</p>
+                      <p className="text-2xl font-bold">{metrics.total_clicks || 0}</p>
+                    </div>
+                    <div className="bg-gray-800 rounded-lg p-4">
+                      <p className="text-gray-400 text-sm mb-1">Registros</p>
+                      <p className="text-2xl font-bold">{metrics.total_registrations || 0}</p>
+                    </div>
+                    <div className="bg-gray-800 rounded-lg p-4">
+                      <p className="text-gray-400 text-sm mb-1">Primeiros Depósitos</p>
+                      <p className="text-2xl font-bold">{metrics.total_first_deposits || 0}</p>
+                    </div>
+                    <div className="bg-gray-800 rounded-lg p-4">
+                      <p className="text-gray-400 text-sm mb-1">Total Depósitos</p>
+                      <p className="text-2xl font-bold">{metrics.total_deposits || 0}</p>
+                    </div>
+                    <div className="bg-gray-800 rounded-lg p-4">
+                      <p className="text-gray-400 text-sm mb-1">Valor Total Depósitos</p>
+                      <p className="text-2xl font-bold text-[#d4af37]">
+                        R$ {(metrics.total_deposit_amount || 0).toFixed(2).replace('.', ',')}
+                      </p>
+                    </div>
+                    <div className="bg-gray-800 rounded-lg p-4">
+                      <p className="text-gray-400 text-sm mb-1">Sub-Afiliados</p>
+                      <p className="text-2xl font-bold">{metrics.sub_affiliates_count || 0}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {metrics.metrics_by_sub_affiliate && metrics.metrics_by_sub_affiliate.length > 0 && (
+                  <div className="bg-gray-900 rounded-2xl p-6 border border-gray-800">
+                    <h2 className="text-xl font-bold mb-4">Métricas por Sub-Afiliado</h2>
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b border-gray-700">
+                            <th className="px-4 py-3 text-left text-sm font-semibold">Código</th>
+                            <th className="px-4 py-3 text-left text-sm font-semibold">Cliques</th>
+                            <th className="px-4 py-3 text-left text-sm font-semibold">Registros</th>
+                            <th className="px-4 py-3 text-left text-sm font-semibold">1º Depósitos</th>
+                            <th className="px-4 py-3 text-left text-sm font-semibold">Depósitos</th>
+                            <th className="px-4 py-3 text-left text-sm font-semibold">Valor Depósitos</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {metrics.metrics_by_sub_affiliate.map((sub: any) => (
+                            <tr key={sub.sub_affiliate_id} className="border-b border-gray-700">
+                              <td className="px-4 py-3">{sub.affiliate_code || '-'}</td>
+                              <td className="px-4 py-3">{sub.clicks || 0}</td>
+                              <td className="px-4 py-3">{sub.registrations || 0}</td>
+                              <td className="px-4 py-3">{sub.first_deposits || 0}</td>
+                              <td className="px-4 py-3">{sub.deposits || 0}</td>
+                              <td className="px-4 py-3 text-[#d4af37]">
+                                R$ {(sub.deposit_amount || 0).toFixed(2).replace('.', ',')}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </>

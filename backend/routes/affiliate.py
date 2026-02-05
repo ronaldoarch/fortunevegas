@@ -7,9 +7,10 @@ from sqlalchemy import func, and_
 from typing import Optional
 from datetime import datetime, timedelta
 from database import get_db
-from models import User, Deposit, Withdrawal, Affiliate, FTD
+from models import User, Deposit, Withdrawal, Affiliate, FTD, AffiliateMetric, AffiliateMetricType
 from dependencies import get_current_user
 from schemas import AffiliateResponse
+from fastapi import Query
 
 router = APIRouter(prefix="/api/public/affiliate", tags=["affiliate"])
 
@@ -244,4 +245,99 @@ async def get_affiliate_performance(
         "deposits_from_referrals": total_deposit_amount,
         "cpa_earned": cpa_earned,
         "revshare_earned": revshare_earned
+    }
+
+
+@router.get("/metrics")
+async def get_affiliate_metrics(
+    period: Optional[str] = Query("month", description="week, month, all"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Retorna métricas detalhadas de rastreamento do afiliado
+    """
+    if not current_user.affiliate_id:
+        raise HTTPException(
+            status_code=404,
+            detail="Usuário não está vinculado a um afiliado"
+        )
+    
+    affiliate = db.query(Affiliate).filter(Affiliate.id == current_user.affiliate_id).first()
+    if not affiliate:
+        raise HTTPException(
+            status_code=404,
+            detail="Afiliado não encontrado"
+        )
+    
+    # Calcular período
+    from datetime import timedelta
+    now = datetime.utcnow()
+    if period == "week":
+        start_date = now - timedelta(days=7)
+    elif period == "last_week":
+        start_date = now - timedelta(days=14)
+        end_date = now - timedelta(days=7)
+    elif period == "last_month":
+        start_date = now - timedelta(days=60)
+        end_date = now - timedelta(days=30)
+    else:  # month ou all
+        start_date = now - timedelta(days=30)
+        end_date = None
+    
+    # Buscar métricas
+    metrics_query = db.query(AffiliateMetric).filter(
+        AffiliateMetric.affiliate_id == affiliate.id
+    )
+    
+    if period == "last_week" or period == "last_month":
+        metrics_query = metrics_query.filter(
+            AffiliateMetric.created_at >= start_date,
+            AffiliateMetric.created_at < end_date
+        )
+    elif period != "all":
+        metrics_query = metrics_query.filter(AffiliateMetric.created_at >= start_date)
+    
+    metrics = metrics_query.order_by(AffiliateMetric.created_at.desc()).all()
+    
+    # Agrupar por tipo
+    clicks = [m for m in metrics if m.metric_type == AffiliateMetricType.CLICK]
+    registrations = [m for m in metrics if m.metric_type == AffiliateMetricType.REGISTRATION]
+    first_deposits = [m for m in metrics if m.metric_type == AffiliateMetricType.FIRST_DEPOSIT]
+    deposits = [m for m in metrics if m.metric_type == AffiliateMetricType.DEPOSIT]
+    withdrawals = [m for m in metrics if m.metric_type == AffiliateMetricType.WITHDRAWAL]
+    
+    # Calcular totais
+    total_clicks = len(clicks)
+    total_registrations = len(registrations)
+    total_first_deposits = len(first_deposits)
+    total_deposits = len(deposits)
+    total_deposit_amount = sum(d.amount or 0 for d in deposits)
+    total_withdrawals = len(withdrawals)
+    total_withdrawal_amount = sum(w.amount or 0 for w in withdrawals)
+    
+    # Taxa de conversão
+    conversion_rate = (total_registrations / total_clicks * 100) if total_clicks > 0 else 0
+    registration_to_deposit_rate = (total_first_deposits / total_registrations * 100) if total_registrations > 0 else 0
+    
+    return {
+        "period": period,
+        "total_clicks": total_clicks,
+        "total_registrations": total_registrations,
+        "total_first_deposits": total_first_deposits,
+        "total_deposits": total_deposits,
+        "total_deposit_amount": total_deposit_amount,
+        "total_withdrawals": total_withdrawals,
+        "total_withdrawal_amount": total_withdrawal_amount,
+        "conversion_rate": round(conversion_rate, 2),
+        "registration_to_deposit_rate": round(registration_to_deposit_rate, 2),
+        "metrics_by_date": [
+            {
+                "date": m.created_at.strftime("%Y-%m-%d"),
+                "type": m.metric_type.value,
+                "amount": m.amount,
+                "count": 1
+            }
+            for m in metrics
+        ]
     }

@@ -9,15 +9,17 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 export default function Afiliado() {
   const navigate = useNavigate();
   const { user, token } = useAuth();
-  const [activeTab, setActiveTab] = useState<'comecar' | 'link' | 'dados' | 'desempenho' | 'comissao'>('comecar');
+  const [activeTab, setActiveTab] = useState<'comecar' | 'link' | 'dados' | 'desempenho' | 'comissao' | 'metricas'>('comecar');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [affiliateData, setAffiliateData] = useState<any>(null);
   const [affiliateLink, setAffiliateLink] = useState<any>(null);
   const [stats, setStats] = useState<any>(null);
   const [performance, setPerformance] = useState<any>(null);
+  const [metrics, setMetrics] = useState<any>(null);
   const [copied, setCopied] = useState(false);
   const [period, setPeriod] = useState<'week' | 'last_week' | 'month' | 'last_month'>('month');
+  const [metricsPeriod, setMetricsPeriod] = useState<'week' | 'last_week' | 'month' | 'last_month' | 'all'>('month');
 
   useEffect(() => {
     if (!token || !user) {
@@ -29,7 +31,7 @@ export default function Afiliado() {
       return;
     }
     loadData();
-  }, [token, user, navigate, period]);
+  }, [token, user, navigate, period, metricsPeriod]);
 
   const loadData = async () => {
     setLoading(true);
@@ -65,6 +67,14 @@ export default function Afiliado() {
       });
       if (perfRes.ok) {
         setPerformance(await perfRes.json());
+      }
+
+      // Carregar métricas
+      const metricsRes = await fetch(`${API_URL}/api/public/affiliate/metrics?period=${metricsPeriod}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (metricsRes.ok) {
+        setMetrics(await metricsRes.json());
       }
     } catch (err: any) {
       setError(err.message);
@@ -154,6 +164,16 @@ export default function Afiliado() {
             }`}
           >
             Comissão
+          </button>
+          <button
+            onClick={() => setActiveTab('metricas')}
+            className={`px-4 py-2 rounded-lg font-semibold transition-colors whitespace-nowrap ${
+              activeTab === 'metricas'
+                ? 'bg-[#d4af37] text-black'
+                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+            }`}
+          >
+            Métricas
           </button>
         </div>
 
@@ -440,6 +460,105 @@ export default function Afiliado() {
                         {(stats.revshare_rate || 0).toFixed(2)}%
                       </p>
                       <p className="text-gray-400 text-sm mt-1">Sobre os depósitos dos indicados</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Métricas Tab */}
+            {activeTab === 'metricas' && metrics && (
+              <div className="space-y-4">
+                {/* Filtros de período */}
+                <div className="flex gap-2 overflow-x-auto">
+                  <button
+                    onClick={() => setMetricsPeriod('week')}
+                    className={`px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap ${
+                      metricsPeriod === 'week'
+                        ? 'bg-[#0a4d3e] text-white'
+                        : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                    }`}
+                  >
+                    Esta Semana
+                  </button>
+                  <button
+                    onClick={() => setMetricsPeriod('last_week')}
+                    className={`px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap ${
+                      metricsPeriod === 'last_week'
+                        ? 'bg-[#0a4d3e] text-white'
+                        : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                    }`}
+                  >
+                    Última Semana
+                  </button>
+                  <button
+                    onClick={() => setMetricsPeriod('month')}
+                    className={`px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap ${
+                      metricsPeriod === 'month'
+                        ? 'bg-[#0a4d3e] text-white'
+                        : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                    }`}
+                  >
+                    Este Mês
+                  </button>
+                  <button
+                    onClick={() => setMetricsPeriod('last_month')}
+                    className={`px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap ${
+                      metricsPeriod === 'last_month'
+                        ? 'bg-[#0a4d3e] text-white'
+                        : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                    }`}
+                  >
+                    Mês passado
+                  </button>
+                  <button
+                    onClick={() => setMetricsPeriod('all')}
+                    className={`px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap ${
+                      metricsPeriod === 'all'
+                        ? 'bg-[#0a4d3e] text-white'
+                        : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                    }`}
+                  >
+                    Todos
+                  </button>
+                </div>
+
+                <div className="bg-gray-900 rounded-2xl p-6 border border-gray-800">
+                  <h2 className="text-xl font-bold mb-4">Rastreamento de Métricas</h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                    <div className="bg-gray-800 rounded-lg p-4">
+                      <p className="text-gray-400 text-sm mb-1">Total de Cliques</p>
+                      <p className="text-2xl font-bold">{metrics.total_clicks || 0}</p>
+                    </div>
+                    <div className="bg-gray-800 rounded-lg p-4">
+                      <p className="text-gray-400 text-sm mb-1">Registros</p>
+                      <p className="text-2xl font-bold">{metrics.total_registrations || 0}</p>
+                    </div>
+                    <div className="bg-gray-800 rounded-lg p-4">
+                      <p className="text-gray-400 text-sm mb-1">Primeiros Depósitos</p>
+                      <p className="text-2xl font-bold">{metrics.total_first_deposits || 0}</p>
+                    </div>
+                    <div className="bg-gray-800 rounded-lg p-4">
+                      <p className="text-gray-400 text-sm mb-1">Taxa de Conversão</p>
+                      <p className="text-2xl font-bold text-[#d4af37]">{metrics.conversion_rate || 0}%</p>
+                    </div>
+                    <div className="bg-gray-800 rounded-lg p-4">
+                      <p className="text-gray-400 text-sm mb-1">Registro → Depósito</p>
+                      <p className="text-2xl font-bold text-[#d4af37]">{metrics.registration_to_deposit_rate || 0}%</p>
+                    </div>
+                    <div className="bg-gray-800 rounded-lg p-4">
+                      <p className="text-gray-400 text-sm mb-1">Total Depósitos</p>
+                      <p className="text-2xl font-bold">{metrics.total_deposits || 0}</p>
+                    </div>
+                    <div className="bg-gray-800 rounded-lg p-4">
+                      <p className="text-gray-400 text-sm mb-1">Valor Total Depósitos</p>
+                      <p className="text-2xl font-bold text-[#d4af37]">
+                        R$ {(metrics.total_deposit_amount || 0).toFixed(2).replace('.', ',')}
+                      </p>
+                    </div>
+                    <div className="bg-gray-800 rounded-lg p-4">
+                      <p className="text-gray-400 text-sm mb-1">Total Saques</p>
+                      <p className="text-2xl font-bold">{metrics.total_withdrawals || 0}</p>
                     </div>
                   </div>
                 </div>
