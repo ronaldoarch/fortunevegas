@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 import os
 
 # Import routes
-from routes import auth, admin, media, payments, affiliate
+from routes import auth, admin, media, payments, affiliate, manager
 
 app = FastAPI(title="Fortune Vegas API", version="1.0.0")
 
@@ -50,6 +50,7 @@ app.include_router(media.public_router)
 app.include_router(payments.router)
 app.include_router(payments.webhook_router)
 app.include_router(affiliate.router)
+app.include_router(manager.router)
 
 
 @app.on_event("startup")

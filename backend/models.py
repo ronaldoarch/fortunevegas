@@ -277,6 +277,41 @@ class Affiliate(Base):
     # user.affiliate_id seria adicionado em User se necessário
 
 
+class SubAffiliate(Base):
+    """Sub-afiliados criados por gerentes"""
+    __tablename__ = "sub_affiliates"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    manager_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # Gerente que criou
+    affiliate_id = Column(Integer, ForeignKey("affiliates.id"), nullable=False)  # Afiliado criado
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # Usuário vinculado (se houver)
+    cpa_rate = Column(Float, default=0.0, nullable=False)  # CPA atribuído a este sub
+    revshare_rate = Column(Float, default=0.0, nullable=False)  # Revshare atribuído a este sub
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    manager = relationship("User", foreign_keys=[manager_id])
+    affiliate = relationship("Affiliate")
+    user = relationship("User", foreign_keys=[user_id])
+
+
+class ManagerSettings(Base):
+    """Configurações do gerente (CPA Pool, etc)"""
+    __tablename__ = "manager_settings"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    manager_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
+    cpa_pool = Column(Float, default=0.0, nullable=False)  # Total de CPA disponível
+    cpa_distributed = Column(Float, default=0.0, nullable=False)  # CPA já distribuído
+    revshare_rate = Column(Float, default=0.0, nullable=False)  # Revshare do gerente
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    manager = relationship("User")
+
+
 class IGameWinProviderConfig(Base):
     """Configuração de provedores preferidos do IGameWin (até 3)"""
     __tablename__ = "igamewin_provider_configs"

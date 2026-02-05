@@ -181,6 +181,36 @@ def run_migrations():
                 conn.execute(text("ALTER TABLE ftd_settings ADD COLUMN max_amount FLOAT NOT NULL DEFAULT 0.0"))
                 print("✓ Added max_amount column to ftd_settings")
             
+            # 11. Criar tabela sub_affiliates (se não existir)
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS sub_affiliates (
+                    id SERIAL PRIMARY KEY,
+                    manager_id INTEGER NOT NULL REFERENCES users(id),
+                    affiliate_id INTEGER NOT NULL REFERENCES affiliates(id),
+                    user_id INTEGER REFERENCES users(id),
+                    cpa_rate FLOAT NOT NULL DEFAULT 0.0,
+                    revshare_rate FLOAT NOT NULL DEFAULT 0.0,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_sub_affiliates_manager_id ON sub_affiliates(manager_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_sub_affiliates_affiliate_id ON sub_affiliates(affiliate_id)"))
+            
+            # 12. Criar tabela manager_settings (se não existir)
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS manager_settings (
+                    id SERIAL PRIMARY KEY,
+                    manager_id INTEGER UNIQUE NOT NULL REFERENCES users(id),
+                    cpa_pool FLOAT NOT NULL DEFAULT 0.0,
+                    cpa_distributed FLOAT NOT NULL DEFAULT 0.0,
+                    revshare_rate FLOAT NOT NULL DEFAULT 0.0,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_manager_settings_manager_id ON manager_settings(manager_id)"))
+            
             print("✓ Migrations executed successfully")
     except Exception as e:
         # Ignora erros de "already exists" ou constraints duplicadas

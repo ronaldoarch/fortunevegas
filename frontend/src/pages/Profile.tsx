@@ -146,7 +146,7 @@ export default function Profile() {
             {/* Botão para Gerentes */}
             {(user.role === 'agent' || user.role === 'manager') && (
               <button
-                onClick={() => navigate('/admin')}
+                onClick={() => navigate('/gerente')}
                 className="w-full bg-[#d4af37] hover:bg-[#ffd700] text-black font-semibold py-3 rounded-lg transition-colors text-left px-4 flex items-center gap-2"
               >
                 <User size={18} />

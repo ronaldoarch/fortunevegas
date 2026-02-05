@@ -368,6 +368,55 @@ class AffiliateResponse(AffiliateBase):
         from_attributes = True
 
 
+# Sub-Affiliate Schemas
+class SubAffiliateBase(BaseModel):
+    affiliate_id: int
+    cpa_rate: float = 0.0
+    revshare_rate: float = 0.0
+
+
+class SubAffiliateCreate(BaseModel):
+    username: str
+    email: str
+    password: str
+    code: str  # Código do afiliado
+    cpa_rate: float
+    revshare_rate: float = 0.0
+
+
+class SubAffiliateResponse(BaseModel):
+    id: int
+    manager_id: int
+    affiliate_id: int
+    user_id: Optional[int]
+    cpa_rate: float
+    revshare_rate: float
+    affiliate_code: Optional[str] = None
+    affiliate_name: Optional[str] = None
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+# Manager Settings Schemas
+class ManagerSettingsBase(BaseModel):
+    cpa_pool: float = 0.0
+    revshare_rate: float = 0.0
+
+
+class ManagerSettingsResponse(ManagerSettingsBase):
+    id: int
+    manager_id: int
+    cpa_distributed: float
+    cpa_available: float  # cpa_pool - cpa_distributed
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
 # IGameWin Provider Config Schemas
 class IGameWinProviderConfigBase(BaseModel):
     provider_code: str
