@@ -3882,12 +3882,26 @@ function ManagersTab({ token }: { token: string }) {
     setError('');
     try {
       const res = await fetch(`${API_URL}/api/admin/managers`, {
-        headers: { Authorization: `Bearer ${token}` }
+        method: 'GET',
+        headers: { 
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}` 
+        },
+        credentials: 'include'
       });
-      if (!res.ok) throw new Error('Falha ao carregar gerentes');
+      if (!res.ok) {
+        const errorText = await res.text();
+        try {
+          const errorData = JSON.parse(errorText);
+          throw new Error(errorData.detail || 'Falha ao carregar gerentes');
+        } catch {
+          throw new Error(`Erro ${res.status}: ${errorText || 'Falha ao carregar gerentes'}`);
+        }
+      }
       setManagers(await res.json());
     } catch (err: any) {
-      setError(err.message);
+      console.error('Erro ao buscar gerentes:', err);
+      setError(err.message || 'Erro ao carregar gerentes. Verifique a conexão com o servidor.');
     } finally {
       setLoading(false);
     }
@@ -3905,11 +3919,20 @@ function ManagersTab({ token }: { token: string }) {
         // Atualizar
         const res = await fetch(`${API_URL}/api/admin/managers/${editingId}?cpa_pool=${form.cpa_pool}&revshare_rate=${form.revshare_rate}`, {
           method: 'PUT',
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { 
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}` 
+          },
+          credentials: 'include'
         });
         if (!res.ok) {
-          const data = await res.json();
-          throw new Error(data.detail || 'Falha ao atualizar');
+          const errorText = await res.text();
+          try {
+            const data = JSON.parse(errorText);
+            throw new Error(data.detail || 'Falha ao atualizar gerente');
+          } catch {
+            throw new Error(`Erro ${res.status}: ${errorText || 'Falha ao atualizar gerente'}`);
+          }
         }
       } else {
         // Criar
@@ -3918,11 +3941,17 @@ function ManagersTab({ token }: { token: string }) {
           headers: { 
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}` 
-          }
+          },
+          credentials: 'include'
         });
         if (!res.ok) {
-          const data = await res.json();
-          throw new Error(data.detail || 'Falha ao criar');
+          const errorText = await res.text();
+          try {
+            const data = JSON.parse(errorText);
+            throw new Error(data.detail || 'Falha ao criar gerente');
+          } catch {
+            throw new Error(`Erro ${res.status}: ${errorText || 'Falha ao criar gerente'}`);
+          }
         }
       }
       

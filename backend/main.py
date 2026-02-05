@@ -37,12 +37,13 @@ cors_regex = r"https?://(.*\.)?(fortunevegas\.site|agenciamidas\.com)(/.*)?$"
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
+    allow_origins=cors_origins if cors_origins else ["*"],  # Se não houver origens específicas, permite todas (apenas para debug)
     allow_origin_regex=cors_regex,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
     expose_headers=["*"],
+    max_age=3600,
 )
 
 # Include routers
@@ -78,3 +79,9 @@ async def root():
 @app.get("/api/health")
 async def health():
     return {"status": "healthy"}
+
+
+@app.options("/{full_path:path}")
+async def options_handler(full_path: str):
+    """Handler para requisições OPTIONS (preflight CORS)"""
+    return {"status": "ok"}
