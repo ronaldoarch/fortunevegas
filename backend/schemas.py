@@ -85,6 +85,7 @@ class IGameWinAgentBase(BaseModel):
     agent_key: str
     api_url: str = "https://api.igamewin.com"
     is_active: bool = True
+    rtp: float = 96.0
     credentials: Optional[str] = None
 
 
@@ -97,6 +98,7 @@ class IGameWinAgentUpdate(BaseModel):
     agent_key: Optional[str] = None
     api_url: Optional[str] = None
     is_active: Optional[bool] = None
+    rtp: Optional[float] = None
     credentials: Optional[str] = None
 
 

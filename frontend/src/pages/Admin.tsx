@@ -1008,7 +1008,7 @@ function IGameWinTab({ token }: { token: string }) {
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [form, setForm] = useState({ agent_code: '', agent_key: '', api_url: 'https://api.igamewin.com', credentials: '', is_active: true });
+  const [form, setForm] = useState({ agent_code: '', agent_key: '', api_url: 'https://api.igamewin.com', credentials: '', rtp: 96.0, is_active: true });
   const [editingId, setEditingId] = useState<number | null>(null);
   const [games, setGames] = useState<any[]>([]);
   const [providers, setProviders] = useState<any[]>([]);
@@ -1073,7 +1073,7 @@ function IGameWinTab({ token }: { token: string }) {
     finally { setLoadingBalance(false); }
   };
   const resetForm = () => {
-    setForm({ agent_code: '', agent_key: '', api_url: 'https://api.igamewin.com', credentials: '', is_active: true });
+    setForm({ agent_code: '', agent_key: '', api_url: 'https://api.igamewin.com', credentials: '', rtp: 96.0, is_active: true });
     setEditingId(null);
   };
 
@@ -1084,6 +1084,7 @@ function IGameWinTab({ token }: { token: string }) {
       agent_key: agent.agent_key || '',
       api_url: agent.api_url || 'https://api.igamewin.com',
       credentials: agent.credentials || '',
+      rtp: agent.rtp !== undefined ? agent.rtp : 96.0,
       is_active: agent.is_active !== undefined ? agent.is_active : true
     });
   };
@@ -1226,15 +1227,19 @@ function IGameWinTab({ token }: { token: string }) {
             />
             <p className="text-xs text-gray-500 mt-1">Exemplo: https://api.igamewin.com</p>
           </div>
-          <div className="md:col-span-2">
-            <label className="block text-sm text-gray-400 mb-1">Credenciais extras (JSON)</label>
-            <textarea 
-              className="bg-gray-700 rounded px-3 py-2 text-sm w-full min-h-[100px]" 
-              placeholder='{"agent_secret": "seu_secret_aqui", "provider_code": "default_provider"}' 
-              value={form.credentials} 
-              onChange={e=>setForm({...form, credentials:e.target.value})}
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">RTP (%)</label>
+            <input 
+              type="number"
+              step="0.01"
+              min="0"
+              max="100"
+              className="bg-gray-700 rounded px-3 py-2 text-sm w-full" 
+              placeholder="96.0" 
+              value={form.rtp} 
+              onChange={e=>setForm({...form, rtp: parseFloat(e.target.value) || 96.0})}
             />
-            <p className="text-xs text-gray-500 mt-1">JSON opcional com configurações extras (agent_secret, provider_code, etc)</p>
+            <p className="text-xs text-gray-500 mt-1">Return to Player - Percentual de retorno (padrão: 96%)</p>
           </div>
           <div className="flex items-center gap-2">
             <input 
@@ -1244,6 +1249,16 @@ function IGameWinTab({ token }: { token: string }) {
               id="is_active"
             />
             <label htmlFor="is_active" className="text-sm">Ativo</label>
+          </div>
+          <div className="md:col-span-2">
+            <label className="block text-sm text-gray-400 mb-1">Credenciais extras (JSON)</label>
+            <textarea 
+              className="bg-gray-700 rounded px-3 py-2 text-sm w-full min-h-[100px]" 
+              placeholder='{"agent_secret": "seu_secret_aqui", "provider_code": "default_provider"}' 
+              value={form.credentials} 
+              onChange={e=>setForm({...form, credentials:e.target.value})}
+            />
+            <p className="text-xs text-gray-500 mt-1">JSON opcional com configurações extras (agent_secret, provider_code, etc)</p>
           </div>
           <div className="flex gap-2 md:col-span-2">
             <button 
@@ -1281,6 +1296,9 @@ function IGameWinTab({ token }: { token: string }) {
                     <div className="font-bold text-lg mb-2">ID: {a.id}</div>
                     <div className="text-sm text-gray-400 mb-1">Agent Code: <span className="text-white font-mono">{a.agent_code}</span></div>
                     <div className="text-sm text-gray-400 mb-1">API: <span className="text-white">{a.api_url}</span></div>
+                    <div className="text-sm text-gray-400 mb-1">
+                      RTP: <span className="text-white font-semibold">{a.rtp !== undefined ? `${a.rtp}%` : '96.0%'}</span>
+                    </div>
                     <div className="text-sm text-gray-400 mb-1">
                       Status: <span className={a.is_active ? 'text-green-400 font-semibold' : 'text-red-400 font-semibold'}>{a.is_active ? 'Ativo' : 'Inativo'}</span>
                     </div>
