@@ -24,7 +24,9 @@ RUN python -c "import fastapi; print(f'FastAPI version: {fastapi.__version__}')"
 COPY . .
 
 # Criar diretórios de uploads
-RUN mkdir -p uploads/logos uploads/banners && \
+# NOTA: Em produção, este diretório deve ser montado como volume persistente
+# Configure no Coolify: Source Path -> /root/fortunevegas-uploads, Destination Path -> /app/uploads
+RUN mkdir -p uploads/logos uploads/banners uploads/promotions && \
     chmod -R 755 uploads
 
 # Variáveis de ambiente padrão (podem ser sobrescritas no Coolify)

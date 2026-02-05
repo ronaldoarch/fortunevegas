@@ -72,13 +72,16 @@ CORS_ORIGINS=http://localhost:5173,https://seu-dominio.com
 
 ### No Coolify:
 
-1. Na página da aplicação, vá em **Volumes**
-2. Adicione um volume:
-   - **Mount Path**: `/app/uploads`
-   - **Type**: `Named Volume` ou `Bind Mount`
+1. Na página da aplicação, vá em **Persistent Storage** (ou **Volumes**)
+2. Clique em **Add Volume Mount**
+3. Configure:
    - **Name**: `fortunevegas-uploads`
+   - **Source Path**: `/root/fortunevegas-uploads` (ou outro caminho no servidor)
+   - **Destination Path**: `/app/uploads` ⚠️ **OBRIGATÓRIO**
 
 Isso garante que os banners e logos enviados não sejam perdidos em atualizações/restarts.
+
+📖 **Guia Detalhado**: Veja [VOLUME-PERSISTENTE.md](./VOLUME-PERSISTENTE.md) para instruções passo a passo com screenshots.
 
 ---
 
