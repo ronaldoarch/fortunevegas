@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Wallet, User, Mail, Phone, CreditCard, LogOut, ArrowLeft } from 'lucide-react';
 
 export default function Profile() {
   const navigate = useNavigate();
-  const { user, token, logout } = useAuth();
+  const { user, token, logout, refreshUser } = useAuth();
   const [loading, setLoading] = useState(true);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (!token) {
@@ -17,6 +18,43 @@ export default function Profile() {
       setLoading(false);
     }
   }, [token, user, navigate]);
+
+  // Atualizar saldo automaticamente a cada 5 segundos
+  useEffect(() => {
+    if (!token || !refreshUser) return;
+
+    // Função para atualizar o saldo
+    const updateBalance = async () => {
+      try {
+        await refreshUser();
+      } catch (err) {
+        console.error('Erro ao atualizar saldo:', err);
+      }
+    };
+
+    // Atualizar imediatamente quando a página carrega
+    updateBalance();
+
+    // Atualizar a cada 5 segundos
+    intervalRef.current = setInterval(updateBalance, 5000);
+
+    // Atualizar quando a página recebe foco (usuário volta para a aba)
+    const handleVisibilityChange = () => {
+      if (!document.hidden && token) {
+        updateBalance();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Limpar intervalo e listener ao desmontar
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [token, refreshUser]);
 
   const handleLogout = () => {
     logout();
