@@ -158,6 +158,13 @@ class WithdrawalCreate(WithdrawalBase):
     pass
 
 
+class WithdrawalPixRequest(BaseModel):
+    amount: float
+    pix_key: str
+    type_key: str
+    document_validation: Optional[str] = None
+
+
 class WithdrawalUpdate(BaseModel):
     status: Optional[TransactionStatus] = None
     external_id: Optional[str] = None

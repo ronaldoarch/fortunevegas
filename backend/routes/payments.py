@@ -7,7 +7,7 @@ from typing import Optional
 from database import get_db
 from models import User, Deposit, Withdrawal, Gateway, TransactionStatus, FTDSettings, WebhookEventType
 from gatebox_api import GateboxAPI
-from schemas import DepositResponse, WithdrawalResponse, DepositPixRequest
+from schemas import DepositResponse, WithdrawalResponse, DepositPixRequest, WithdrawalPixRequest
 from dependencies import get_current_user
 from webhook_dispatcher import dispatch_webhook
 from datetime import datetime
@@ -376,24 +376,24 @@ async def check_deposit_status(
 
 @router.post("/withdrawal/pix", response_model=WithdrawalResponse, status_code=status.HTTP_201_CREATED)
 async def create_pix_withdrawal(
-    amount: float,
-    pix_key: str,
-    type_key: str,
+    withdrawal_data: WithdrawalPixRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-    document_validation: Optional[str] = None
+    current_user: User = Depends(get_current_user)
 ):
     """
     Cria saque via PIX usando Gatebox
     
     Args:
-        amount: Valor do saque
-        pix_key: Chave PIX do recebedor
-        type_key: Tipo da chave PIX (não usado na Gatebox, mas mantido para compatibilidade)
-        document_validation: CPF/CNPJ para validar se pertence à chave PIX (opcional)
+        withdrawal_data: Dados do saque (amount, pix_key, type_key, document_validation)
     """
     # Usar usuário autenticado
     user = current_user
+    
+    # Extrair dados do request
+    amount = withdrawal_data.amount
+    pix_key = withdrawal_data.pix_key
+    type_key = withdrawal_data.type_key
+    document_validation = withdrawal_data.document_validation
     
     # Verificar saldo
     if user.balance < amount:
@@ -411,6 +411,21 @@ async def create_pix_withdrawal(
     if amount < min_withdrawal:
         raise HTTPException(status_code=400, detail=f"Valor mínimo de saque é R$ {min_withdrawal:.2f}")
     
+    # Validar chave PIX
+    if not pix_key or not pix_key.strip():
+        raise HTTPException(status_code=400, detail="Chave PIX é obrigatória")
+    
+    # Limpar chave PIX (remover espaços e caracteres especiais se necessário)
+    pix_key_clean = pix_key.strip()
+    
+    # Se for telefone, garantir formato correto (apenas números com código do país)
+    if type_key == "TELEFONE":
+        # Remover caracteres não numéricos
+        pix_key_clean = ''.join(filter(str.isdigit, pix_key_clean))
+        # Se não começar com 55 (código do Brasil), adicionar
+        if not pix_key_clean.startswith('55'):
+            pix_key_clean = '55' + pix_key_clean
+    
     # Buscar gateway PIX ativo
     gateway = get_active_pix_gateway(db)
     
@@ -420,23 +435,26 @@ async def create_pix_withdrawal(
     # Gerar external_id único para controle de duplicidade
     external_id = f"WTH_{user.id}_{int(datetime.utcnow().timestamp())}"
     
-    # Validar chave PIX antes de fazer o saque (opcional)
-    # A Gatebox pode validar automaticamente, mas podemos fazer uma validação prévia
-    # pix_validation = await gatebox.validate_pix_key(pix_key)
-    
     # Realizar transferência PIX
     # A Gatebox requer name (nome do recebedor) - usar nome do usuário se disponível
     # Usar username como fallback se não houver nome completo
-    recipient_name = user.username or user.email.split('@')[0] or "Usuário"
+    recipient_name = user.username or user.email.split('@')[0] if user.email else "Usuário"
     
-    transfer_response = await gatebox.withdraw_pix(
-        external_id=external_id,
-        key=pix_key,
-        name=recipient_name,
-        amount=amount,
-        document_number=document_validation,
-        description=f"Saque de R$ {amount:.2f}"
-    )
+    try:
+        transfer_response = await gatebox.withdraw_pix(
+            external_id=external_id,
+            key=pix_key_clean,
+            name=recipient_name,
+            amount=amount,
+            document_number=document_validation,
+            description=f"Saque de R$ {amount:.2f}"
+        )
+    except Exception as e:
+        print(f"Erro ao chamar Gatebox withdraw_pix: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Erro ao processar transferência PIX: {str(e)}"
+        )
     
     if not transfer_response:
         raise HTTPException(
