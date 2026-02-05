@@ -284,6 +284,96 @@ async def create_pix_deposit(
     return deposit
 
 
+@router.post("/deposit/{deposit_id}/check-status")
+async def check_deposit_status(
+    deposit_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Verifica o status de um depósito consultando a API da Gatebox
+    Útil quando o webhook não foi recebido ou houve algum problema
+    """
+    deposit = db.query(Deposit).filter(
+        Deposit.id == deposit_id,
+        Deposit.user_id == current_user.id
+    ).first()
+    
+    if not deposit:
+        raise HTTPException(status_code=404, detail="Depósito não encontrado")
+    
+    # Buscar gateway PIX ativo
+    gateway = get_active_pix_gateway(db)
+    
+    # Obter credenciais do gateway
+    credentials = json.loads(gateway.credentials) if gateway.credentials else {}
+    username = credentials.get("username")
+    password = credentials.get("password")
+    api_url = credentials.get("api_url", "https://api.gatebox.com.br")
+    
+    if not username or not password:
+        raise HTTPException(status_code=500, detail="Credenciais do gateway não configuradas")
+    
+    # Consultar status na Gatebox
+    gatebox = GateboxAPI(username=username, password=password, api_url=api_url)
+    
+    # Tentar consultar pelo external_id primeiro
+    status_response = await gatebox.get_pix_status(external_id=deposit.external_id)
+    
+    if status_response and status_response.get("error"):
+        # Se falhar, tentar pelo transaction_id no metadata
+        metadata = json.loads(deposit.metadata_json) if deposit.metadata_json else {}
+        transaction_id = metadata.get("transaction_id") or metadata.get("uuid")
+        if transaction_id:
+            status_response = await gatebox.get_pix_status(transaction_id=transaction_id)
+    
+    if not status_response or status_response.get("error"):
+        return {
+            "deposit_id": deposit.id,
+            "current_status": deposit.status.value,
+            "gatebox_status": None,
+            "error": status_response.get("detail") if status_response else "Erro ao consultar status"
+        }
+    
+    # Extrair dados da resposta
+    gatebox_data = status_response.get("data") or status_response
+    gatebox_status = gatebox_data.get("status") or gatebox_data.get("statusTransaction")
+    
+    # Processar atualização de status
+    status_upper = str(gatebox_status).upper() if gatebox_status else ""
+    
+    if status_upper in ["PAID", "PAID_OUT", "CONFIRMED", "APPROVED", "SUCCESS", "COMPLETED"]:
+        if deposit.status != TransactionStatus.APPROVED:
+            deposit.status = TransactionStatus.APPROVED
+            # Adicionar saldo ao usuário
+            user = db.query(User).filter(User.id == deposit.user_id).first()
+            if user:
+                user.balance += deposit.amount
+                db.commit()
+                return {
+                    "deposit_id": deposit.id,
+                    "current_status": "APPROVED",
+                    "gatebox_status": gatebox_status,
+                    "balance_credited": True,
+                    "new_balance": user.balance
+                }
+    elif status_upper in ["CANCELLED", "CANCELED", "REJECTED", "FAILED", "CHARGEBACK", "EXPIRED"]:
+        if deposit.status == TransactionStatus.APPROVED:
+            # Reverter saldo se já foi aprovado
+            user = db.query(User).filter(User.id == deposit.user_id).first()
+            if user and user.balance >= deposit.amount:
+                user.balance -= deposit.amount
+        deposit.status = TransactionStatus.CANCELLED
+        db.commit()
+    
+    return {
+        "deposit_id": deposit.id,
+        "current_status": deposit.status.value,
+        "gatebox_status": gatebox_status,
+        "balance_credited": deposit.status == TransactionStatus.APPROVED
+    }
+
+
 @router.post("/withdrawal/pix", response_model=WithdrawalResponse, status_code=status.HTTP_201_CREATED)
 async def create_pix_withdrawal(
     amount: float,
@@ -432,12 +522,30 @@ async def webhook_gatebox(request: Request, db: Session = Depends(get_db)):
     Esta é a URL que deve ser configurada no painel da Gatebox
     """
     try:
-        data = await request.json()
-        print(f"Webhook Gatebox recebido: {json.dumps(data, indent=2)}")
+        # Tentar obter dados como JSON
+        try:
+            data = await request.json()
+        except:
+            # Se falhar, tentar como texto e fazer parse manual
+            body = await request.body()
+            try:
+                data = json.loads(body.decode('utf-8'))
+            except:
+                data = {}
+        
+        print(f"[WEBHOOK] Webhook Gatebox recebido: {json.dumps(data, indent=2)}")
+        
+        # Verificar se os dados estão dentro de um campo "data" ou similar
+        if "data" in data and isinstance(data["data"], dict):
+            inner_data = data["data"]
+            # Mesclar dados internos com dados externos
+            data = {**data, **inner_data}
         
         # Identificar o tipo de evento
-        event_type = data.get("eventType") or data.get("event_type") or data.get("type")
+        event_type = data.get("eventType") or data.get("event_type") or data.get("type") or data.get("event")
         status_transaction = data.get("status") or data.get("statusTransaction") or data.get("status_transaction")
+        
+        print(f"[WEBHOOK] Event type identificado: {event_type}, Status: {status_transaction}")
         
         # Se não tiver eventType explícito, tentar identificar pelo contexto
         if not event_type:
@@ -447,22 +555,27 @@ async def webhook_gatebox(request: Request, db: Session = Depends(get_db)):
                 deposit = db.query(Deposit).filter(Deposit.external_id == external_id).first()
                 if deposit:
                     event_type = "PIX_PAY_IN"
+                    print(f"[WEBHOOK] Identificado como PIX_PAY_IN pelo external_id: {external_id}")
                 else:
                     withdrawal = db.query(Withdrawal).filter(Withdrawal.external_id == external_id).first()
                     if withdrawal:
                         event_type = "PIX_PAY_OUT"
+                        print(f"[WEBHOOK] Identificado como PIX_PAY_OUT pelo external_id: {external_id}")
         
         # Processar conforme o tipo de evento
-        if event_type in ["PIX_PAY_IN", "pix_pay_in", "cashin", "cash-in"]:
+        if event_type in ["PIX_PAY_IN", "pix_pay_in", "cashin", "cash-in", "PIX_CASH_IN"]:
             return await _process_pix_cashin(data, db)
-        elif event_type in ["PIX_PAY_OUT", "pix_pay_out", "cashout", "cash-out"]:
+        elif event_type in ["PIX_PAY_OUT", "pix_pay_out", "cashout", "cash-out", "PIX_CASH_OUT"]:
             return await _process_pix_cashout(data, db)
         else:
             # Tentar processar como depósito ou saque baseado nos dados
+            print(f"[WEBHOOK] Tipo de evento não reconhecido, tentando processar como evento desconhecido")
             return await _process_unknown_event(data, db)
     
     except Exception as e:
-        print(f"Erro ao processar webhook Gatebox: {str(e)}")
+        import traceback
+        print(f"[WEBHOOK] Erro ao processar webhook Gatebox: {str(e)}")
+        print(f"[WEBHOOK] Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Erro ao processar webhook: {str(e)}")
 
 
@@ -477,6 +590,8 @@ async def _process_pix_cashin(data: dict, db: Session):
     status_transaction = data.get("status") or data.get("statusTransaction") or data.get("status_transaction")
     amount = data.get("amount") or data.get("value")
     end_to_end = data.get("endToEnd") or data.get("end_to_end")
+    
+    print(f"[WEBHOOK] Processando PIX Cash-in - external_id: {external_id}, status: {status_transaction}")
     
     # Buscar depósito pelo external_id
     deposit = None
@@ -495,33 +610,54 @@ async def _process_pix_cashin(data: dict, db: Session):
                 break
     
     if not deposit:
+        print(f"[WEBHOOK] Depósito não encontrado - external_id: {external_id}, transaction_id: {transaction_id}")
         return {"status": "ok", "message": "Depósito não encontrado"}
+    
+    print(f"[WEBHOOK] Depósito encontrado - ID: {deposit.id}, Status atual: {deposit.status.value}, Valor: {deposit.amount}")
     
     # Atualizar status do depósito
     status_upper = str(status_transaction).upper() if status_transaction else ""
+    print(f"[WEBHOOK] Status recebido (uppercase): {status_upper}")
     
-    if status_upper in ["PAID", "PAID_OUT", "CONFIRMED", "APPROVED", "SUCCESS"]:
+    # Aceitar mais variações de status de pagamento confirmado
+    paid_statuses = ["PAID", "PAID_OUT", "CONFIRMED", "APPROVED", "SUCCESS", "COMPLETED", "SETTLED"]
+    
+    if status_upper in paid_statuses:
         if deposit.status != TransactionStatus.APPROVED:
+            print(f"[WEBHOOK] Creditando saldo - Status mudando de {deposit.status.value} para APPROVED")
             deposit.status = TransactionStatus.APPROVED
             # Adicionar saldo ao usuário
             user = db.query(User).filter(User.id == deposit.user_id).first()
             if user:
+                old_balance = user.balance
                 user.balance += deposit.amount
-    elif status_upper in ["CANCELLED", "CANCELED", "REJECTED", "FAILED", "CHARGEBACK"]:
+                print(f"[WEBHOOK] Saldo creditado - Usuário ID: {user.id}, Saldo anterior: {old_balance}, Saldo novo: {user.balance}, Valor creditado: {deposit.amount}")
+            else:
+                print(f"[WEBHOOK] ERRO: Usuário não encontrado - user_id: {deposit.user_id}")
+        else:
+            print(f"[WEBHOOK] Depósito já estava aprovado, ignorando")
+    elif status_upper in ["CANCELLED", "CANCELED", "REJECTED", "FAILED", "CHARGEBACK", "EXPIRED"]:
+        print(f"[WEBHOOK] Cancelando depósito - Status: {status_upper}")
         if deposit.status == TransactionStatus.APPROVED:
             # Reverter saldo se já foi aprovado
             user = db.query(User).filter(User.id == deposit.user_id).first()
             if user and user.balance >= deposit.amount:
+                old_balance = user.balance
                 user.balance -= deposit.amount
+                print(f"[WEBHOOK] Saldo revertido - Usuário ID: {user.id}, Saldo anterior: {old_balance}, Saldo novo: {user.balance}, Valor revertido: {deposit.amount}")
         deposit.status = TransactionStatus.CANCELLED
+    else:
+        print(f"[WEBHOOK] Status não reconhecido ou ainda pendente - Status: {status_upper}")
     
     # Atualizar metadata
     metadata = json.loads(deposit.metadata_json) if deposit.metadata_json else {}
     metadata["webhook_data"] = data
     metadata["webhook_received_at"] = datetime.utcnow().isoformat()
+    metadata["webhook_status"] = status_transaction
     deposit.metadata_json = json.dumps(metadata)
     
     db.commit()
+    print(f"[WEBHOOK] Depósito atualizado e commitado - ID: {deposit.id}, Novo status: {deposit.status.value}")
     
     # Disparar webhooks configurados para PIX_PAY_IN
     await dispatch_webhook(
