@@ -165,7 +165,7 @@ export default function Depositar() {
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          coupon_code: couponCode.trim().toUpperCase(),
+          code: couponCode.trim().toUpperCase(),
           deposit_amount: amountValue
         })
       });
