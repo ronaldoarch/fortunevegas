@@ -300,7 +300,7 @@ export default function Depositar() {
 
               <button
                 type="submit"
-                disabled={loading || !amount || parseFloat(amount.replace(',', '.')) < 10}
+                disabled={loading || !amount || parseFloat(amount.replace(',', '.')) < settings.min_amount}
                 className="w-full bg-[#ff6b35] hover:bg-[#ff7b35] disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 rounded-lg transition-colors"
               >
                 {loading ? 'Gerando código PIX...' : 'Gerar Código PIX'}
