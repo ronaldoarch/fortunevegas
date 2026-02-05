@@ -8,6 +8,7 @@ from typing import Optional, List
 from datetime import datetime, timedelta
 from database import get_db
 from models import User, Deposit, Withdrawal, Affiliate, FTD, SubAffiliate, ManagerSettings, AffiliateMetric, AffiliateMetricType
+from commission_processor import calculate_user_loss
 from dependencies import get_current_user
 from schemas import SubAffiliateCreate, SubAffiliateResponse, ManagerSettingsResponse
 from auth import get_password_hash
@@ -289,6 +290,128 @@ async def get_manager_commission(
         "cpa_earned": cpa_earned,
         "revshare_earned": revshare_earned,
         "revshare_rate": settings.revshare_rate
+    }
+
+
+@router.get("/metrics-detailed")
+async def get_manager_metrics_detailed(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Retorna métricas detalhadas do gerente e de todos os seus sub-afiliados
+    """
+    if current_user.role not in ['agent', 'manager']:
+        raise HTTPException(
+            status_code=403,
+            detail="Acesso negado. Apenas gerentes podem acessar esta página."
+        )
+    
+    settings = get_manager_settings(db, current_user.id)
+    sub_affiliates = db.query(SubAffiliate).filter(SubAffiliate.manager_id == current_user.id).all()
+    
+    # Métricas do gerente
+    manager_metrics = {
+        "cpa_pool": settings.cpa_pool,
+        "cpa_distributed": settings.cpa_distributed,
+        "cpa_available": settings.cpa_pool - settings.cpa_distributed,
+        "revshare_rate": settings.revshare_rate,
+        "total_cpa_earned": 0.0,
+        "total_revshare_earned": 0.0,
+        "total_users": 0,
+        "total_ftds": 0,
+        "total_deposits": 0.0,
+        "total_loss": 0.0
+    }
+    
+    # Buscar métricas do gerente
+    manager_cpa_metrics = db.query(AffiliateMetric).filter(
+        AffiliateMetric.manager_id == current_user.id,
+        AffiliateMetric.metric_type == AffiliateMetricType.FIRST_DEPOSIT
+    ).all()
+    manager_metrics["total_cpa_earned"] = sum(m.amount for m in manager_cpa_metrics)
+    manager_metrics["total_ftds"] = len(manager_cpa_metrics)
+    
+    manager_revshare_metrics = db.query(AffiliateMetric).filter(
+        AffiliateMetric.manager_id == current_user.id,
+        AffiliateMetric.metric_type == AffiliateMetricType.BET
+    ).all()
+    manager_metrics["total_revshare_earned"] = sum(m.amount for m in manager_revshare_metrics)
+    
+    # Buscar usuários dos sub-afiliados
+    sub_affiliate_ids = [sub.affiliate_id for sub in sub_affiliates]
+    users_from_subs = db.query(User).filter(User.affiliate_id.in_(sub_affiliate_ids)).all()
+    user_ids = [u.id for u in users_from_subs]
+    manager_metrics["total_users"] = len(user_ids)
+    
+    # Calcular depósitos e perdas
+    deposits = db.query(Deposit).filter(
+        Deposit.user_id.in_(user_ids),
+        Deposit.status == "approved"
+    ).all()
+    manager_metrics["total_deposits"] = sum(d.amount for d in deposits)
+    
+    withdrawals = db.query(Withdrawal).filter(
+        Withdrawal.user_id.in_(user_ids),
+        Withdrawal.status == "approved"
+    ).all()
+    total_withdrawals = sum(w.amount for w in withdrawals)
+    
+    current_balances = sum(u.balance for u in users_from_subs)
+    manager_metrics["total_loss"] = max(0.0, manager_metrics["total_deposits"] - total_withdrawals - current_balances)
+    
+    # Métricas dos sub-afiliados
+    sub_metrics_list = []
+    for sub in sub_affiliates:
+        affiliate = db.query(Affiliate).filter(Affiliate.id == sub.affiliate_id).first()
+        if not affiliate:
+            continue
+        
+        # Usuários deste sub
+        sub_users = [u for u in users_from_subs if u.affiliate_id == sub.affiliate_id]
+        sub_user_ids = [u.id for u in sub_users]
+        
+        # Métricas de CPA
+        sub_cpa_metrics = db.query(AffiliateMetric).filter(
+            AffiliateMetric.sub_affiliate_id == sub.id,
+            AffiliateMetric.metric_type == AffiliateMetricType.FIRST_DEPOSIT
+        ).all()
+        sub_cpa_earned = sum(m.amount for m in sub_cpa_metrics)
+        
+        # Métricas de Revshare
+        sub_revshare_metrics = db.query(AffiliateMetric).filter(
+            AffiliateMetric.sub_affiliate_id == sub.id,
+            AffiliateMetric.metric_type == AffiliateMetricType.BET
+        ).all()
+        sub_revshare_earned = sum(m.amount for m in sub_revshare_metrics)
+        
+        # Depósitos e perdas do sub
+        sub_deposits = [d for d in deposits if d.user_id in sub_user_ids]
+        sub_deposit_total = sum(d.amount for d in sub_deposits)
+        
+        sub_withdrawals = [w for w in withdrawals if w.user_id in sub_user_ids]
+        sub_withdrawal_total = sum(w.amount for w in sub_withdrawals)
+        
+        sub_current_balance = sum(u.balance for u in sub_users)
+        sub_loss = max(0.0, sub_deposit_total - sub_withdrawal_total - sub_current_balance)
+        
+        sub_metrics_list.append({
+            "sub_affiliate_id": sub.id,
+            "affiliate_code": affiliate.code,
+            "affiliate_name": affiliate.name,
+            "cpa_rate": sub.cpa_rate,
+            "revshare_rate": sub.revshare_rate,
+            "cpa_earned": sub_cpa_earned,
+            "revshare_earned": sub_revshare_earned,
+            "total_users": len(sub_users),
+            "total_ftds": len(sub_cpa_metrics),
+            "total_deposits": sub_deposit_total,
+            "total_loss": sub_loss
+        })
+    
+    return {
+        "manager": manager_metrics,
+        "sub_affiliates": sub_metrics_list
     }
 
 

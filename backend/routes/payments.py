@@ -6,12 +6,13 @@ from sqlalchemy.orm import Session
 from typing import Optional, List
 from sqlalchemy import desc, or_
 from database import get_db
-from models import User, Deposit, Withdrawal, Gateway, TransactionStatus, FTDSettings, WebhookEventType, Bet, BetStatus, Notification, Coupon, CouponUse, Promotion, PromotionUse, PromotionType
+from models import User, Deposit, Withdrawal, Gateway, TransactionStatus, FTDSettings, WebhookEventType, Bet, BetStatus, Notification, Coupon, CouponUse, Promotion, PromotionUse, PromotionType, FTD
 from gatebox_api import GateboxAPI
 from schemas import DepositResponse, WithdrawalResponse, DepositPixRequest, WithdrawalPixRequest, CouponValidateRequest, CouponResponse
 from dependencies import get_current_user
 from webhook_dispatcher import dispatch_webhook
 from tracking_dispatcher import dispatch_tracking_event
+from commission_processor import process_cpa_on_ftd, process_revshare_on_bet, calculate_user_loss
 from datetime import datetime
 import json
 import uuid
@@ -1006,6 +1007,41 @@ async def _process_pix_cashin(data: dict, db: Session):
                 
                 # Adicionar bônus não sacável ao saldo de bônus
                 user.bonus_balance += non_withdrawable_bonus
+                
+                # Verificar se é primeiro depósito (FTD) e criar registro
+                is_first_deposit = metadata.get("is_first_deposit", False)
+                existing_ftd = db.query(FTD).filter(FTD.user_id == user.id).first()
+                
+                if is_first_deposit and not existing_ftd:
+                    # Criar FTD
+                    ftd_settings = db.query(FTDSettings).filter(FTDSettings.is_active == True).first()
+                    pass_rate = ftd_settings.pass_rate if ftd_settings else 0.0
+                    
+                    ftd = FTD(
+                        user_id=user.id,
+                        deposit_id=deposit.id,
+                        amount=deposit.amount,
+                        is_first_deposit=True,
+                        pass_rate=pass_rate,
+                        status=TransactionStatus.APPROVED
+                    )
+                    db.add(ftd)
+                    db.flush()  # Flush para obter o ID do FTD
+                    
+                    # Processar CPA no primeiro depósito
+                    try:
+                        process_cpa_on_ftd(user.id, deposit.id, db)
+                    except Exception as e:
+                        print(f"[CPA] Erro ao processar CPA (não crítico): {str(e)}")
+                
+                # Processar revshare baseado em perdas (atualizar quando há mudança no saldo)
+                try:
+                    loss = calculate_user_loss(user.id, db)
+                    if loss > 0:
+                        # Simular aposta para atualizar revshare (valor da aposta não importa, só a perda)
+                        process_revshare_on_bet(user.id, 0.0, 0.0, db)
+                except Exception as e:
+                    print(f"[REVSHARE] Erro ao processar revshare (não crítico): {str(e)}")
                 
                 print(f"[WEBHOOK] Saldo creditado - Usuário ID: {user.id}, Saldo anterior: {old_balance}, Saldo novo: {user.balance}, Bônus anterior: {old_bonus_balance}, Bônus novo: {user.bonus_balance}, Depósito: R$ {real_amount:.2f}, Bônus sacável: R$ {withdrawable_bonus:.2f}, Bônus não sacável: R$ {non_withdrawable_bonus:.2f}")
             else:
