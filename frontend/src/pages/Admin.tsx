@@ -3272,6 +3272,7 @@ function PromotionsTab({ token }: { token: string }) {
         min_deposit_amount: '',
         max_bonus_amount: '',
         is_first_deposit_only: false,
+        is_withdrawable: false,
         start_date: '',
         end_date: '',
         is_active: true
@@ -3484,6 +3485,7 @@ function PromotionsTab({ token }: { token: string }) {
                   min_deposit_amount: '',
                   max_bonus_amount: '',
                   is_first_deposit_only: false,
+                  is_withdrawable: false,
                   start_date: '',
                   end_date: '',
                   is_active: true
@@ -4252,6 +4254,7 @@ function CouponsTab({ token }: { token: string }) {
                   valid_until: '',
                   min_deposit_amount: '',
                   max_bonus_amount: '',
+                  is_withdrawable: false,
                   is_active: true
                 });
               }}
