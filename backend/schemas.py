@@ -14,6 +14,7 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str
+    affiliate_code: Optional[str] = None  # Código de afiliado do link (ref)
 
 
 class UserUpdate(BaseModel):

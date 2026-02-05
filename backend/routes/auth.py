@@ -5,7 +5,7 @@ from database import get_db
 from schemas import LoginRequest, Token, UserResponse, UserCreate
 from auth import authenticate_user, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES, get_password_hash, get_user_by_username
 from dependencies import get_current_user
-from models import User, UserRole
+from models import User, UserRole, Affiliate
 from tracking_dispatcher import dispatch_tracking_event
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -46,6 +46,19 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
     # Criar email temporário se não fornecido
     email_to_save = user_data.email if user_data.email else f"{user_data.username}@temp.com"
     
+    # Processar código de afiliado se fornecido
+    affiliate_id = None
+    if user_data.affiliate_code:
+        affiliate = db.query(Affiliate).filter(
+            Affiliate.code == user_data.affiliate_code,
+            Affiliate.is_active == True
+        ).first()
+        if affiliate:
+            affiliate_id = affiliate.id
+            print(f"[AFFILIATE] Usuário sendo registrado com código de afiliado: {user_data.affiliate_code} (ID: {affiliate_id})")
+        else:
+            print(f"[AFFILIATE] Código de afiliado inválido ou inativo: {user_data.affiliate_code}")
+    
     # Criar novo usuário
     new_user = User(
         username=user_data.username,
@@ -56,7 +69,8 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
         role=UserRole.USER,
         balance=0.0,
         is_active=True,
-        is_verified=False
+        is_verified=False,
+        affiliate_id=affiliate_id
     )
     
     db.add(new_user)

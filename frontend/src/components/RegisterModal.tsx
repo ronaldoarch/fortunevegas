@@ -16,12 +16,25 @@ export default function RegisterModal({ isOpen, onClose, onSwitchToLogin }: Regi
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [affiliateCode, setAffiliateCode] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     nome: '',
     telefone: '',
     senha: '',
     termos: false,
   });
+
+  // Capturar código de afiliado da URL ao abrir o modal
+  useEffect(() => {
+    if (isOpen) {
+      const urlParams = new URLSearchParams(window.location.search);
+      const ref = urlParams.get('ref');
+      if (ref) {
+        setAffiliateCode(ref);
+        console.log('[AFFILIATE] Código de afiliado capturado:', ref);
+      }
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     const fetchLogo = async () => {
@@ -216,6 +229,7 @@ export default function RegisterModal({ isOpen, onClose, onSwitchToLogin }: Regi
                   username: phoneClean,
                   password: formData.senha,
                   phone: phoneClean, // Salvar telefone limpo
+                  affiliate_code: affiliateCode || undefined, // Enviar código de afiliado se existir
                 });
                 onClose();
               } catch (err: any) {

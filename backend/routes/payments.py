@@ -460,6 +460,32 @@ async def check_deposit_status(
                 # Adicionar bônus não sacável ao saldo de bônus
                 user.bonus_balance += non_withdrawable_bonus
                 
+                # Verificar se é primeiro depósito (FTD) e criar registro
+                is_first_deposit = metadata.get("is_first_deposit", False)
+                existing_ftd = db.query(FTD).filter(FTD.user_id == user.id).first()
+                
+                if is_first_deposit and not existing_ftd:
+                    # Criar FTD
+                    ftd_settings = db.query(FTDSettings).filter(FTDSettings.is_active == True).first()
+                    pass_rate = ftd_settings.pass_rate if ftd_settings else 0.0
+                    
+                    ftd = FTD(
+                        user_id=user.id,
+                        deposit_id=deposit.id,
+                        amount=deposit.amount,
+                        is_first_deposit=True,
+                        pass_rate=pass_rate,
+                        status=TransactionStatus.APPROVED
+                    )
+                    db.add(ftd)
+                    db.flush()  # Flush para obter o ID do FTD
+                    
+                    # Processar CPA no primeiro depósito
+                    try:
+                        process_cpa_on_ftd(user.id, deposit.id, db)
+                    except Exception as e:
+                        print(f"[CPA] Erro ao processar CPA (não crítico): {str(e)}")
+                
                 db.commit()
                 return {
                     "deposit_id": deposit.id,
