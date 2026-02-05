@@ -14,6 +14,7 @@ interface User {
   balance: number;
   is_active: boolean;
   is_verified: boolean;
+  affiliate_id?: number;
   created_at: string;
   updated_at: string;
 }

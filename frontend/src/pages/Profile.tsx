@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Wallet, User, Mail, Phone, CreditCard, LogOut, ArrowLeft } from 'lucide-react';
+import { Wallet, User, Mail, Phone, CreditCard, LogOut, ArrowLeft, Settings } from 'lucide-react';
 
 export default function Profile() {
   const navigate = useNavigate();
@@ -142,6 +142,29 @@ export default function Profile() {
             >
               Minhas Apostas
             </button>
+            
+            {/* Botão para Gerentes */}
+            {(user.role === 'agent' || user.role === 'manager') && (
+              <button
+                onClick={() => navigate('/admin')}
+                className="w-full bg-[#d4af37] hover:bg-[#ffd700] text-black font-semibold py-3 rounded-lg transition-colors text-left px-4 flex items-center gap-2"
+              >
+                <User size={18} />
+                Painel do Gerente
+              </button>
+            )}
+            
+            {/* Botão para Afiliados */}
+            {user.affiliate_id && (
+              <button
+                onClick={() => navigate('/admin')}
+                className="w-full bg-[#0a4d3e] hover:bg-[#0d5d4b] text-white font-semibold py-3 rounded-lg transition-colors text-left px-4 flex items-center gap-2"
+              >
+                <User size={18} />
+                Painel do Afiliado
+              </button>
+            )}
+            
             <button
               onClick={handleLogout}
               className="w-full bg-red-600/20 hover:bg-red-600/30 border border-red-600 text-red-400 font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
