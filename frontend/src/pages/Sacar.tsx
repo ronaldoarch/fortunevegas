@@ -95,7 +95,9 @@ export default function Sacar() {
         return;
       } else if (pixKeyType === 'TELEFONE') {
         const cleanPhone = pixKey.replace(/\D/g, '');
-        if (cleanPhone.length < 10 || cleanPhone.length > 11) {
+        // Aceitar telefone com ou sem código do país (55)
+        const phoneLength = cleanPhone.length;
+        if (phoneLength < 10 || phoneLength > 13) {
           setError('Telefone inválido. Use o formato: (XX) XXXXX-XXXX ou (XX) XXXX-XXXX');
           setLoading(false);
           return;
@@ -280,7 +282,7 @@ export default function Sacar() {
 
               <button
                 type="submit"
-                disabled={loading || !amount || parseFloat(amount.replace(',', '.')) < 10 || !pixKey}
+                disabled={loading || !amount || parseFloat(amount.replace(',', '.')) < settings.min_withdrawal || !pixKey.trim()}
                 className="w-full bg-[#d4af37] hover:bg-[#ffd700] disabled:bg-gray-600 disabled:cursor-not-allowed text-black font-bold py-3 rounded-lg transition-colors"
               >
                 {loading ? 'Processando saque...' : 'Confirmar Saque'}
