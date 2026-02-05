@@ -3767,7 +3767,7 @@ function ManagersTab({ token }: { token: string }) {
 // ========== COIN STORE TAB (REMOVED) ==========
 
 // ========== COUPONS TAB ==========
-function CouponsTab({ token: _token }: { token: string }) {
+function CouponsTab({ token }: { token: string }) {
   const [coupons, setCoupons] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -3779,6 +3779,8 @@ function CouponsTab({ token: _token }: { token: string }) {
     max_uses: '',
     valid_from: '',
     valid_until: '',
+    min_deposit_amount: '',
+    max_bonus_amount: '',
     is_active: true
   });
 
@@ -3786,13 +3788,72 @@ function CouponsTab({ token: _token }: { token: string }) {
     setLoading(true);
     setError('');
     try {
-      // TODO: Implementar endpoint de cupons no backend
-      // const res = await fetch(`${API_URL}/api/admin/coupons`, {
-      //   headers: { Authorization: `Bearer ${token}` }
-      // });
-      // if (!res.ok) throw new Error('Falha ao carregar cupons');
-      // setCoupons(await res.json());
-      setCoupons([]);
+      const res = await fetch(`${API_URL}/api/admin/coupons`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error('Falha ao carregar cupons');
+      setCoupons(await res.json());
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const createCoupon = async () => {
+    if (!form.code || !form.value || !form.valid_from || !form.valid_until) {
+      setError('Preencha todos os campos obrigatórios');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    try {
+      const body: any = {
+        code: form.code.toUpperCase().trim(),
+        type: form.type,
+        value: parseFloat(form.value),
+        valid_from: new Date(form.valid_from).toISOString(),
+        valid_until: new Date(form.valid_until).toISOString(),
+        min_deposit_amount: form.min_deposit_amount ? parseFloat(form.min_deposit_amount) : 0.0,
+        is_active: form.is_active
+      };
+      
+      if (form.max_uses) {
+        body.max_uses = parseInt(form.max_uses);
+      }
+      
+      if (form.max_bonus_amount) {
+        body.max_bonus_amount = parseFloat(form.max_bonus_amount);
+      }
+
+      const res = await fetch(`${API_URL}/api/admin/coupons`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(body)
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'Falha ao criar cupom');
+      }
+
+      await fetchCoupons();
+      setShowForm(false);
+      setForm({
+        code: '',
+        type: 'percentage',
+        value: '',
+        max_uses: '',
+        valid_from: '',
+        valid_until: '',
+        min_deposit_amount: '',
+        max_bonus_amount: '',
+        is_active: true
+      });
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -3801,8 +3862,10 @@ function CouponsTab({ token: _token }: { token: string }) {
   };
 
   useEffect(() => {
-    fetchCoupons();
-  }, []);
+    if (token) {
+      fetchCoupons();
+    }
+  }, [token]);
 
   return (
     <div className="space-y-4">
@@ -3885,7 +3948,32 @@ function CouponsTab({ token: _token }: { token: string }) {
                 className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
                 value={form.valid_until}
                 onChange={e => setForm({...form, valid_until: e.target.value})}
+                required
               />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Depósito Mínimo (R$)</label>
+              <input
+                type="number"
+                step="0.01"
+                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+                value={form.min_deposit_amount}
+                onChange={e => setForm({...form, min_deposit_amount: e.target.value})}
+                placeholder="0.00"
+              />
+              <p className="text-xs text-gray-500 mt-1">Valor mínimo do depósito para usar o cupom</p>
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Bônus Máximo (R$)</label>
+              <input
+                type="number"
+                step="0.01"
+                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+                value={form.max_bonus_amount}
+                onChange={e => setForm({...form, max_bonus_amount: e.target.value})}
+                placeholder="Deixe vazio para sem limite"
+              />
+              <p className="text-xs text-gray-500 mt-1">Valor máximo do bônus (apenas para cupons percentuais)</p>
             </div>
             <div className="flex items-center gap-2">
               <input
@@ -3898,8 +3986,31 @@ function CouponsTab({ token: _token }: { token: string }) {
             </div>
           </div>
           <div className="mt-4 flex gap-2">
-            <button className="px-4 py-2 bg-[#d4af37] hover:bg-[#ffd700] text-black rounded">
-              Criar Cupom
+            <button
+              onClick={createCoupon}
+              disabled={loading}
+              className="px-4 py-2 bg-[#d4af37] hover:bg-[#ffd700] text-black rounded disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? 'Criando...' : 'Criar Cupom'}
+            </button>
+            <button
+              onClick={() => {
+                setShowForm(false);
+                setForm({
+                  code: '',
+                  type: 'percentage',
+                  value: '',
+                  max_uses: '',
+                  valid_from: '',
+                  valid_until: '',
+                  min_deposit_amount: '',
+                  max_bonus_amount: '',
+                  is_active: true
+                });
+              }}
+              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded"
+            >
+              Cancelar
             </button>
           </div>
         </div>
