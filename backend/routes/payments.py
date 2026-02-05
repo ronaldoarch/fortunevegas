@@ -4,9 +4,9 @@ Rotas públicas para pagamentos (depósitos e saques) usando Gatebox
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from typing import Optional, List
-from sqlalchemy import desc
+from sqlalchemy import desc, or_
 from database import get_db
-from models import User, Deposit, Withdrawal, Gateway, TransactionStatus, FTDSettings, WebhookEventType, Bet, BetStatus
+from models import User, Deposit, Withdrawal, Gateway, TransactionStatus, FTDSettings, WebhookEventType, Bet, BetStatus, Notification
 from gatebox_api import GateboxAPI
 from schemas import DepositResponse, WithdrawalResponse, DepositPixRequest, WithdrawalPixRequest
 from dependencies import get_current_user
@@ -1264,3 +1264,79 @@ async def get_my_bets(
         }
         for bet in bets
     ]
+
+
+@router.get("/my-notifications")
+async def get_my_notifications(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Buscar notificações do usuário logado (globais + pessoais)"""
+    notifications = db.query(Notification).filter(
+        Notification.is_active == True,
+        or_(
+            Notification.user_id == current_user.id,  # Notificações pessoais
+            Notification.user_id == None  # Notificações globais
+        )
+    ).order_by(desc(Notification.created_at)).limit(50).all()
+    
+    return [
+        {
+            "id": notif.id,
+            "title": notif.title,
+            "message": notif.message,
+            "type": notif.type.value,
+            "is_read": notif.is_read,
+            "link": notif.link,
+            "created_at": notif.created_at.isoformat(),
+        }
+        for notif in notifications
+    ]
+
+
+@router.put("/my-notifications/{notification_id}/read")
+async def mark_notification_read(
+    notification_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Marcar notificação como lida"""
+    notification = db.query(Notification).filter(
+        Notification.id == notification_id,
+        Notification.is_active == True,
+        or_(
+            Notification.user_id == current_user.id,
+            Notification.user_id == None
+        )
+    ).first()
+    
+    if not notification:
+        raise HTTPException(status_code=404, detail="Notificação não encontrada")
+    
+    notification.is_read = True
+    db.commit()
+    
+    return {"success": True, "message": "Notificação marcada como lida"}
+
+
+@router.put("/my-notifications/read-all")
+async def mark_all_notifications_read(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Marcar todas as notificações do usuário como lidas"""
+    notifications = db.query(Notification).filter(
+        Notification.is_active == True,
+        Notification.is_read == False,
+        or_(
+            Notification.user_id == current_user.id,
+            Notification.user_id == None
+        )
+    ).all()
+    
+    for notif in notifications:
+        notif.is_read = True
+    
+    db.commit()
+    
+    return {"success": True, "count": len(notifications)}

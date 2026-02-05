@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Gift, Menu as MenuIcon, Wallet, User } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import NotificationsDropdown from './NotificationsDropdown';
 
 // Backend FastAPI - usa variável de ambiente ou fallback para localhost
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -14,7 +15,7 @@ interface HeaderProps {
 
 export default function Header({ onMenuClick, onLoginClick, onRegisterClick }: HeaderProps) {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -96,6 +97,8 @@ export default function Header({ onMenuClick, onLoginClick, onRegisterClick }: H
                     R$ {user.balance.toFixed(2).replace('.', ',')}
                   </span>
                 </button>
+                {/* Notificações */}
+                <NotificationsDropdown token={token || ''} />
                 {/* Perfil */}
                 <button
                   onClick={() => navigate('/conta')}
