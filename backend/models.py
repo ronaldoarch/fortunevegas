@@ -46,6 +46,7 @@ class User(Base):
     notifications = relationship("Notification")
     affiliate = relationship("Affiliate")
     coupon_uses = relationship("CouponUse", back_populates="user")
+    promotion_uses = relationship("PromotionUse", back_populates="user")
 
 
 class Gateway(Base):
@@ -255,6 +256,54 @@ class CouponUse(Base):
     
     # Relationships
     coupon = relationship("Coupon", back_populates="coupon_uses")
+    user = relationship("User")
+    deposit = relationship("Deposit")
+
+
+class PromotionType(str, enum.Enum):
+    BONUS = "bonus"
+    CASHBACK = "cashback"
+    FREE_SPINS = "free_spins"
+    TOURNAMENT = "tournament"
+
+
+class Promotion(Base):
+    """Sistema de promoções funcionais"""
+    __tablename__ = "promotions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(255), nullable=False)
+    description = Column(Text)
+    type = Column(Enum(PromotionType), nullable=False)
+    bonus_value = Column(Float, default=0.0, nullable=False)  # Valor do bônus (percentual ou fixo)
+    bonus_type = Column(String(20), default="percentage", nullable=False)  # 'percentage' ou 'fixed'
+    min_deposit_amount = Column(Float, default=0.0, nullable=False)  # Depósito mínimo para ativar promoção
+    max_bonus_amount = Column(Float, nullable=True)  # Valor máximo do bônus (para percentuais)
+    banner_url = Column(String(500), nullable=True)  # URL do banner da promoção
+    is_first_deposit_only = Column(Boolean, default=False, nullable=False)  # Se aplica apenas no primeiro depósito
+    is_active = Column(Boolean, default=True, nullable=False)
+    start_date = Column(DateTime, nullable=False)
+    end_date = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    promotion_uses = relationship("PromotionUse", back_populates="promotion")
+
+
+class PromotionUse(Base):
+    """Registro de uso de promoções por usuários"""
+    __tablename__ = "promotion_uses"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    promotion_id = Column(Integer, ForeignKey("promotions.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    deposit_id = Column(Integer, ForeignKey("deposits.id"), nullable=True)
+    bonus_amount = Column(Float, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    
+    # Relationships
+    promotion = relationship("Promotion", back_populates="promotion_uses")
     user = relationship("User")
     deposit = relationship("Deposit")
 

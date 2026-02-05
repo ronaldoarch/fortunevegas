@@ -3183,16 +3183,21 @@ function IGameWinProvidersTab({ token }: { token: string }) {
 }
 
 // ========== PROMOTIONS TAB ==========
-function PromotionsTab({ token: _token }: { token: string }) {
+function PromotionsTab({ token }: { token: string }) {
   const [promotions, setPromotions] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showForm, setShowForm] = useState(false);
+  const [uploadingBanner, setUploadingBanner] = useState<number | null>(null);
   const [form, setForm] = useState({
     title: '',
     description: '',
     type: 'bonus',
-    value: '',
+    bonus_value: '',
+    bonus_type: 'percentage',
+    min_deposit_amount: '',
+    max_bonus_amount: '',
+    is_first_deposit_only: false,
     start_date: '',
     end_date: '',
     is_active: true
@@ -3202,13 +3207,11 @@ function PromotionsTab({ token: _token }: { token: string }) {
     setLoading(true);
     setError('');
     try {
-      // TODO: Implementar endpoint de promoções no backend
-      // const res = await fetch(`${API_URL}/api/admin/promotions`, {
-      //   headers: { Authorization: `Bearer ${token}` }
-      // });
-      // if (!res.ok) throw new Error('Falha ao carregar promoções');
-      // setPromotions(await res.json());
-      setPromotions([]);
+      const res = await fetch(`${API_URL}/api/admin/promotions`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error('Falha ao carregar promoções');
+      setPromotions(await res.json());
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -3216,9 +3219,100 @@ function PromotionsTab({ token: _token }: { token: string }) {
     }
   };
 
+  const createPromotion = async () => {
+    if (!form.title || !form.bonus_value || !form.start_date || !form.end_date) {
+      setError('Preencha todos os campos obrigatórios');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    try {
+      const body: any = {
+        title: form.title,
+        description: form.description || null,
+        type: form.type,
+        bonus_value: parseFloat(form.bonus_value),
+        bonus_type: form.bonus_type,
+        min_deposit_amount: form.min_deposit_amount ? parseFloat(form.min_deposit_amount) : 0.0,
+        is_first_deposit_only: form.is_first_deposit_only,
+        is_active: form.is_active,
+        start_date: new Date(form.start_date).toISOString(),
+        end_date: new Date(form.end_date).toISOString()
+      };
+      
+      if (form.max_bonus_amount) {
+        body.max_bonus_amount = parseFloat(form.max_bonus_amount);
+      }
+
+      const res = await fetch(`${API_URL}/api/admin/promotions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(body)
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'Falha ao criar promoção');
+      }
+
+      await fetchPromotions();
+      setShowForm(false);
+      setForm({
+        title: '',
+        description: '',
+        type: 'bonus',
+        bonus_value: '',
+        bonus_type: 'percentage',
+        min_deposit_amount: '',
+        max_bonus_amount: '',
+        is_first_deposit_only: false,
+        start_date: '',
+        end_date: '',
+        is_active: true
+      });
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBannerUpload = async (promotionId: number, file: File) => {
+    setUploadingBanner(promotionId);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await fetch(`${API_URL}/api/admin/promotions/${promotionId}/upload-banner`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'Falha ao fazer upload do banner');
+      }
+
+      await fetchPromotions();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setUploadingBanner(null);
+    }
+  };
+
   useEffect(() => {
-    fetchPromotions();
-  }, []);
+    if (token) {
+      fetchPromotions();
+    }
+  }, [token]);
 
   return (
     <div className="space-y-4">
@@ -3264,6 +3358,52 @@ function PromotionsTab({ token: _token }: { token: string }) {
                 <option value="tournament">Torneio</option>
               </select>
             </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Tipo de Bônus</label>
+              <select
+                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+                value={form.bonus_type}
+                onChange={e => setForm({...form, bonus_type: e.target.value})}
+              >
+                <option value="percentage">Percentual (%)</option>
+                <option value="fixed">Valor Fixo (R$)</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Valor do Bônus</label>
+              <input
+                type="number"
+                step="0.01"
+                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+                value={form.bonus_value}
+                onChange={e => setForm({...form, bonus_value: e.target.value})}
+                placeholder={form.bonus_type === 'percentage' ? '10' : '50.00'}
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Depósito Mínimo (R$)</label>
+              <input
+                type="number"
+                step="0.01"
+                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+                value={form.min_deposit_amount}
+                onChange={e => setForm({...form, min_deposit_amount: e.target.value})}
+                placeholder="0.00"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Bônus Máximo (R$)</label>
+              <input
+                type="number"
+                step="0.01"
+                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+                value={form.max_bonus_amount}
+                onChange={e => setForm({...form, max_bonus_amount: e.target.value})}
+                placeholder="Deixe vazio para sem limite"
+              />
+              <p className="text-xs text-gray-500 mt-1">Apenas para cupons percentuais</p>
+            </div>
             <div className="md:col-span-2">
               <label className="block text-sm text-gray-400 mb-1">Descrição</label>
               <textarea
@@ -3281,6 +3421,7 @@ function PromotionsTab({ token: _token }: { token: string }) {
                 className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
                 value={form.start_date}
                 onChange={e => setForm({...form, start_date: e.target.value})}
+                required
               />
             </div>
             <div>
@@ -3290,12 +3431,56 @@ function PromotionsTab({ token: _token }: { token: string }) {
                 className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
                 value={form.end_date}
                 onChange={e => setForm({...form, end_date: e.target.value})}
+                required
               />
+            </div>
+            <div className="md:col-span-2 flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={form.is_first_deposit_only}
+                onChange={e => setForm({...form, is_first_deposit_only: e.target.checked})}
+                className="w-4 h-4"
+              />
+              <label className="text-sm text-gray-300">Aplicar apenas no primeiro depósito</label>
+            </div>
+            <div className="md:col-span-2 flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={form.is_active}
+                onChange={e => setForm({...form, is_active: e.target.checked})}
+                className="w-4 h-4"
+              />
+              <label className="text-sm text-gray-300">Ativa</label>
             </div>
           </div>
           <div className="mt-4 flex gap-2">
-            <button className="px-4 py-2 bg-[#d4af37] hover:bg-[#ffd700] text-black rounded">
-              Criar Promoção
+            <button
+              onClick={createPromotion}
+              disabled={loading}
+              className="px-4 py-2 bg-[#d4af37] hover:bg-[#ffd700] text-black rounded disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? 'Criando...' : 'Criar Promoção'}
+            </button>
+            <button
+              onClick={() => {
+                setShowForm(false);
+                setForm({
+                  title: '',
+                  description: '',
+                  type: 'bonus',
+                  bonus_value: '',
+                  bonus_type: 'percentage',
+                  min_deposit_amount: '',
+                  max_bonus_amount: '',
+                  is_first_deposit_only: false,
+                  start_date: '',
+                  end_date: '',
+                  is_active: true
+                });
+              }}
+              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded"
+            >
+              Cancelar
             </button>
           </div>
         </div>
@@ -3324,8 +3509,27 @@ function PromotionsTab({ token: _token }: { token: string }) {
             <tbody>
               {promotions.map((promo) => (
                 <tr key={promo.id} className="border-t border-gray-700">
-                  <td className="px-4 py-3">{promo.title}</td>
-                  <td className="px-4 py-3">{promo.type}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      {promo.banner_url && (
+                        <img 
+                          src={`${API_URL}${promo.banner_url}`} 
+                          alt={promo.title}
+                          className="w-16 h-10 object-cover rounded"
+                        />
+                      )}
+                      <span>{promo.title}</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div>
+                      <div className="font-semibold">{promo.type}</div>
+                      <div className="text-xs text-gray-400">
+                        {promo.bonus_value}{promo.bonus_type === 'percentage' ? '%' : ' R$'}
+                        {promo.is_first_deposit_only && ' (1º depósito)'}
+                      </div>
+                    </div>
+                  </td>
                   <td className="px-4 py-3">
                     <span className={`px-2 py-1 rounded text-xs ${promo.is_active ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>
                       {promo.is_active ? 'Ativa' : 'Inativa'}
@@ -3334,7 +3538,27 @@ function PromotionsTab({ token: _token }: { token: string }) {
                   <td className="px-4 py-3">{new Date(promo.start_date).toLocaleDateString('pt-BR')}</td>
                   <td className="px-4 py-3">{new Date(promo.end_date).toLocaleDateString('pt-BR')}</td>
                   <td className="px-4 py-3">
-                    <button className="text-blue-400 hover:text-blue-300 text-sm">Editar</button>
+                    <div className="flex flex-col gap-1">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            handleBannerUpload(promo.id, file);
+                          }
+                        }}
+                        className="hidden"
+                        id={`banner-upload-${promo.id}`}
+                      />
+                      <label
+                        htmlFor={`banner-upload-${promo.id}`}
+                        className="text-xs text-blue-400 hover:text-blue-300 cursor-pointer"
+                      >
+                        {uploadingBanner === promo.id ? 'Enviando...' : promo.banner_url ? 'Trocar Banner' : 'Adicionar Banner'}
+                      </label>
+                      <button className="text-blue-400 hover:text-blue-300 text-sm">Editar</button>
+                    </div>
                   </td>
                 </tr>
               ))}

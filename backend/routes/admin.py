@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, File, UploadFile
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from sqlalchemy import desc
@@ -17,7 +17,7 @@ from models import (
     GameLayout, ProviderLayout, Theme, Affiliate,
     IGameWinProviderConfig, TrackingConfig, TrackingType,
     SubAffiliate, ManagerSettings, AffiliateMetric, AffiliateMetricType,
-    Coupon, CouponUse
+    Coupon, CouponUse, Promotion, PromotionUse, PromotionType
 )
 import schemas
 from schemas import (
@@ -2012,6 +2012,150 @@ async def delete_coupon(
     db.commit()
     
     return {"success": True, "message": "Cupom deletado com sucesso"}
+
+
+# ========== PROMOTIONS ==========
+@router.get("/promotions", response_model=List[schemas.PromotionResponse])
+async def get_promotions(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    is_active: Optional[bool] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Listar promoções"""
+    query = db.query(Promotion)
+    
+    if is_active is not None:
+        query = query.filter(Promotion.is_active == is_active)
+    
+    promotions = query.order_by(desc(Promotion.created_at)).offset(skip).limit(limit).all()
+    return promotions
+
+
+@router.post("/promotions", response_model=schemas.PromotionResponse, status_code=status.HTTP_201_CREATED)
+async def create_promotion(
+    promotion_data: schemas.PromotionCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Criar promoção"""
+    promotion = Promotion(
+        title=promotion_data.title,
+        description=promotion_data.description,
+        type=PromotionType(promotion_data.type),
+        bonus_value=promotion_data.bonus_value,
+        bonus_type=promotion_data.bonus_type,
+        min_deposit_amount=promotion_data.min_deposit_amount,
+        max_bonus_amount=promotion_data.max_bonus_amount,
+        banner_url=promotion_data.banner_url,
+        is_first_deposit_only=promotion_data.is_first_deposit_only,
+        is_active=promotion_data.is_active,
+        start_date=promotion_data.start_date,
+        end_date=promotion_data.end_date
+    )
+    db.add(promotion)
+    db.commit()
+    db.refresh(promotion)
+    
+    # Criar notificação global sobre a nova promoção
+    notification = Notification(
+        title=f"🎁 {promotion.title}",
+        message=promotion.description or f"Nova promoção disponível! {promotion.bonus_value}{'%' if promotion.bonus_type == 'percentage' else ' reais'} de bônus.",
+        type=NotificationType.PROMOTION,
+        user_id=None,  # Notificação global
+        link="/depositar",
+        is_active=True,
+        is_read=False,
+        metadata_json=json.dumps({"promotion_id": promotion.id})
+    )
+    db.add(notification)
+    db.commit()
+    
+    return promotion
+
+
+@router.put("/promotions/{promotion_id}", response_model=schemas.PromotionResponse)
+async def update_promotion(
+    promotion_id: int,
+    promotion_data: schemas.PromotionUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Atualizar promoção"""
+    promotion = db.query(Promotion).filter(Promotion.id == promotion_id).first()
+    if not promotion:
+        raise HTTPException(status_code=404, detail="Promoção não encontrada")
+    
+    update_data = promotion_data.model_dump(exclude_unset=True)
+    
+    if "type" in update_data:
+        update_data["type"] = PromotionType(update_data["type"])
+    
+    for field, value in update_data.items():
+        setattr(promotion, field, value)
+    
+    db.commit()
+    db.refresh(promotion)
+    return promotion
+
+
+@router.delete("/promotions/{promotion_id}")
+async def delete_promotion(
+    promotion_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Deletar promoção"""
+    promotion = db.query(Promotion).filter(Promotion.id == promotion_id).first()
+    if not promotion:
+        raise HTTPException(status_code=404, detail="Promoção não encontrada")
+    
+    db.delete(promotion)
+    db.commit()
+    
+    return {"success": True, "message": "Promoção deletada com sucesso"}
+
+
+@router.post("/promotions/{promotion_id}/upload-banner")
+async def upload_promotion_banner(
+    promotion_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Upload de banner para promoção"""
+    promotion = db.query(Promotion).filter(Promotion.id == promotion_id).first()
+    if not promotion:
+        raise HTTPException(status_code=404, detail="Promoção não encontrada")
+    
+    # Validar tipo de arquivo
+    if not file.content_type or not file.content_type.startswith('image/'):
+        raise HTTPException(status_code=400, detail="Apenas imagens são permitidas")
+    
+    # Salvar arquivo
+    import os
+    import uuid
+    from pathlib import Path
+    
+    upload_dir = Path("uploads/promotions")
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    
+    file_ext = Path(file.filename).suffix if file.filename else '.jpg'
+    filename = f"{promotion_id}-{uuid.uuid4().hex[:8]}{file_ext}"
+    file_path = upload_dir / filename
+    
+    with open(file_path, "wb") as buffer:
+        content = await file.read()
+        buffer.write(content)
+    
+    # Atualizar URL do banner
+    banner_url = f"/api/public/media/uploads/promotions/{filename}"
+    promotion.banner_url = banner_url
+    db.commit()
+    db.refresh(promotion)
+    
+    return {"banner_url": banner_url, "promotion": schemas.PromotionResponse.model_validate(promotion)}
 
 
 # ========== GAME LAYOUT ==========

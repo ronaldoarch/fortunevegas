@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from typing import Optional, List
 from sqlalchemy import desc, or_
 from database import get_db
-from models import User, Deposit, Withdrawal, Gateway, TransactionStatus, FTDSettings, WebhookEventType, Bet, BetStatus, Notification, Coupon, CouponUse
+from models import User, Deposit, Withdrawal, Gateway, TransactionStatus, FTDSettings, WebhookEventType, Bet, BetStatus, Notification, Coupon, CouponUse, Promotion, PromotionUse, PromotionType
 from gatebox_api import GateboxAPI
 from schemas import DepositResponse, WithdrawalResponse, DepositPixRequest, WithdrawalPixRequest, CouponValidateRequest
 from dependencies import get_current_user
@@ -115,12 +115,50 @@ async def create_pix_deposit(
     # Validar e calcular bônus do cupom se fornecido
     bonus_amount = 0.0
     coupon = None
+    promotion_bonus = 0.0
+    promotion = None
+    
     if deposit_data.coupon_code:
         coupon, bonus_amount, coupon_error = validate_and_calculate_coupon_bonus(
             deposit_data.coupon_code, deposit_data.amount, user.id, db
         )
         if coupon_error:
             raise HTTPException(status_code=400, detail=coupon_error)
+    
+    # Verificar se é primeiro depósito e aplicar promoção automática
+    existing_deposits = db.query(Deposit).filter(
+        Deposit.user_id == user.id,
+        Deposit.status == TransactionStatus.APPROVED
+    ).count()
+    
+    is_first_deposit = existing_deposits == 0
+    
+    if is_first_deposit:
+        # Buscar promoção ativa de primeiro depósito
+        now = datetime.utcnow()
+        active_promotion = db.query(Promotion).filter(
+            Promotion.is_active == True,
+            Promotion.is_first_deposit_only == True,
+            Promotion.start_date <= now,
+            Promotion.end_date >= now,
+            Promotion.min_deposit_amount <= deposit_data.amount
+        ).order_by(desc(Promotion.created_at)).first()
+        
+        if active_promotion:
+            # Calcular bônus da promoção
+            if active_promotion.bonus_type == "percentage":
+                promotion_bonus = (deposit_data.amount * active_promotion.bonus_value) / 100
+            else:  # fixed
+                promotion_bonus = active_promotion.bonus_value
+            
+            # Aplicar limite máximo se existir
+            if active_promotion.max_bonus_amount is not None and promotion_bonus > active_promotion.max_bonus_amount:
+                promotion_bonus = active_promotion.max_bonus_amount
+            
+            promotion = active_promotion
+    
+    # Total de bônus (cupom + promoção)
+    total_bonus = bonus_amount + promotion_bonus
     
     # Validar dados do usuário
     if not deposit_data.payer_name or len(deposit_data.payer_name.strip()) < 3:
@@ -274,7 +312,7 @@ async def create_pix_deposit(
         user_id=user.id,
         gateway_id=gateway.id,
         amount=deposit_data.amount,
-        bonus_amount=bonus_amount,
+        bonus_amount=total_bonus,  # Total de bônus (cupom + promoção)
         coupon_code=deposit_data.coupon_code.upper().strip() if deposit_data.coupon_code else None,
         status=TransactionStatus.PENDING,
         transaction_id=transaction_id_gatebox or str(uuid.uuid4()),
@@ -287,7 +325,11 @@ async def create_pix_deposit(
             "end_to_end": actual_response.get("endToEnd") or actual_response.get("end_to_end"),
             "external_id": external_id,
             "gatebox_response": actual_response,
-            "gatebox_raw_response": pix_response  # Manter resposta original para debug
+            "gatebox_raw_response": pix_response,  # Manter resposta original para debug
+            "promotion_id": promotion.id if promotion else None,
+            "promotion_bonus": promotion_bonus,
+            "coupon_bonus": bonus_amount,
+            "is_first_deposit": is_first_deposit
         })
     )
     
@@ -365,8 +407,14 @@ async def check_deposit_status(
                 total_to_credit = deposit.amount + deposit.bonus_amount
                 user.balance += total_to_credit
                 
+                # Extrair informações do metadata
+                metadata = json.loads(deposit.metadata_json) if deposit.metadata_json else {}
+                promotion_id = metadata.get("promotion_id")
+                promotion_bonus = metadata.get("promotion_bonus", 0)
+                coupon_bonus = metadata.get("coupon_bonus", 0)
+                
                 # Registrar uso do cupom se houver
-                if deposit.coupon_code and deposit.bonus_amount > 0:
+                if deposit.coupon_code and coupon_bonus > 0:
                     coupon = db.query(Coupon).filter(Coupon.code == deposit.coupon_code).first()
                     if coupon:
                         coupon.uses += 1
@@ -374,9 +422,21 @@ async def check_deposit_status(
                             coupon_id=coupon.id,
                             user_id=user.id,
                             deposit_id=deposit.id,
-                            bonus_amount=deposit.bonus_amount
+                            bonus_amount=coupon_bonus
                         )
                         db.add(coupon_use)
+                
+                # Registrar uso da promoção se houver
+                if promotion_id and promotion_bonus > 0:
+                    promotion = db.query(Promotion).filter(Promotion.id == promotion_id).first()
+                    if promotion:
+                        promotion_use = PromotionUse(
+                            promotion_id=promotion.id,
+                            user_id=user.id,
+                            deposit_id=deposit.id,
+                            bonus_amount=promotion_bonus
+                        )
+                        db.add(promotion_use)
                 
                 db.commit()
                 return {
@@ -839,8 +899,14 @@ async def _process_pix_cashin(data: dict, db: Session):
                 total_to_credit = deposit.amount + deposit.bonus_amount
                 user.balance += total_to_credit
                 
+                # Extrair informações do metadata
+                metadata = json.loads(deposit.metadata_json) if deposit.metadata_json else {}
+                promotion_id = metadata.get("promotion_id")
+                promotion_bonus = metadata.get("promotion_bonus", 0)
+                coupon_bonus = metadata.get("coupon_bonus", 0)
+                
                 # Registrar uso do cupom se houver
-                if deposit.coupon_code and deposit.bonus_amount > 0:
+                if deposit.coupon_code and coupon_bonus > 0:
                     coupon = db.query(Coupon).filter(Coupon.code == deposit.coupon_code).first()
                     if coupon:
                         coupon.uses += 1
@@ -848,10 +914,23 @@ async def _process_pix_cashin(data: dict, db: Session):
                             coupon_id=coupon.id,
                             user_id=user.id,
                             deposit_id=deposit.id,
-                            bonus_amount=deposit.bonus_amount
+                            bonus_amount=coupon_bonus
                         )
                         db.add(coupon_use)
-                        print(f"[WEBHOOK] Cupom aplicado - Código: {deposit.coupon_code}, Bônus: R$ {deposit.bonus_amount:.2f}")
+                        print(f"[WEBHOOK] Cupom aplicado - Código: {deposit.coupon_code}, Bônus: R$ {coupon_bonus:.2f}")
+                
+                # Registrar uso da promoção se houver
+                if promotion_id and promotion_bonus > 0:
+                    promotion = db.query(Promotion).filter(Promotion.id == promotion_id).first()
+                    if promotion:
+                        promotion_use = PromotionUse(
+                            promotion_id=promotion.id,
+                            user_id=user.id,
+                            deposit_id=deposit.id,
+                            bonus_amount=promotion_bonus
+                        )
+                        db.add(promotion_use)
+                        print(f"[WEBHOOK] Promoção aplicada - ID: {promotion.id}, Título: {promotion.title}, Bônus: R$ {promotion_bonus:.2f}")
                 
                 print(f"[WEBHOOK] Saldo creditado - Usuário ID: {user.id}, Saldo anterior: {old_balance}, Saldo novo: {user.balance}, Depósito: R$ {deposit.amount:.2f}, Bônus: R$ {deposit.bonus_amount:.2f}, Total: R$ {total_to_credit:.2f}")
             else:
@@ -869,8 +948,12 @@ async def _process_pix_cashin(data: dict, db: Session):
                     old_balance = user.balance
                     user.balance -= total_to_revert
                     
+                    # Extrair informações do metadata
+                    metadata = json.loads(deposit.metadata_json) if deposit.metadata_json else {}
+                    promotion_id = metadata.get("promotion_id")
+                    
                     # Reverter uso do cupom se houver
-                    if deposit.coupon_code and deposit.bonus_amount > 0:
+                    if deposit.coupon_code:
                         coupon = db.query(Coupon).filter(Coupon.code == deposit.coupon_code).first()
                         if coupon and coupon.uses > 0:
                             coupon.uses -= 1
@@ -881,6 +964,15 @@ async def _process_pix_cashin(data: dict, db: Session):
                         if coupon_use:
                             db.delete(coupon_use)
                             print(f"[WEBHOOK] Uso de cupom revertido - Código: {deposit.coupon_code}")
+                    
+                    # Reverter uso da promoção se houver
+                    if promotion_id:
+                        promotion_use = db.query(PromotionUse).filter(
+                            PromotionUse.deposit_id == deposit.id
+                        ).first()
+                        if promotion_use:
+                            db.delete(promotion_use)
+                            print(f"[WEBHOOK] Uso de promoção revertido - ID: {promotion_id}")
                     
                     print(f"[WEBHOOK] Saldo revertido - Usuário ID: {user.id}, Saldo anterior: {old_balance}, Saldo novo: {user.balance}, Depósito revertido: R$ {deposit.amount:.2f}, Bônus revertido: R$ {deposit.bonus_amount:.2f}, Total: R$ {total_to_revert:.2f}")
         deposit.status = TransactionStatus.CANCELLED
@@ -1184,8 +1276,14 @@ async def webhook_pix_cashin(request: Request, db: Session = Depends(get_db)):
                     total_to_credit = deposit.amount + deposit.bonus_amount
                     user.balance += total_to_credit
                     
+                    # Extrair informações do metadata
+                    metadata = json.loads(deposit.metadata_json) if deposit.metadata_json else {}
+                    promotion_id = metadata.get("promotion_id")
+                    promotion_bonus = metadata.get("promotion_bonus", 0)
+                    coupon_bonus = metadata.get("coupon_bonus", 0)
+                    
                     # Registrar uso do cupom se houver
-                    if deposit.coupon_code and deposit.bonus_amount > 0:
+                    if deposit.coupon_code and coupon_bonus > 0:
                         coupon = db.query(Coupon).filter(Coupon.code == deposit.coupon_code).first()
                         if coupon:
                             coupon.uses += 1
@@ -1193,9 +1291,21 @@ async def webhook_pix_cashin(request: Request, db: Session = Depends(get_db)):
                                 coupon_id=coupon.id,
                                 user_id=user.id,
                                 deposit_id=deposit.id,
-                                bonus_amount=deposit.bonus_amount
+                                bonus_amount=coupon_bonus
                             )
                             db.add(coupon_use)
+                    
+                    # Registrar uso da promoção se houver
+                    if promotion_id and promotion_bonus > 0:
+                        promotion = db.query(Promotion).filter(Promotion.id == promotion_id).first()
+                        if promotion:
+                            promotion_use = PromotionUse(
+                                promotion_id=promotion.id,
+                                user_id=user.id,
+                                deposit_id=deposit.id,
+                                bonus_amount=promotion_bonus
+                            )
+                            db.add(promotion_use)
         elif status_upper in ["CANCELLED", "CANCELED", "REJECTED", "FAILED", "CHARGEBACK"]:
             if deposit.status == TransactionStatus.APPROVED:
                 # Reverter saldo se já foi aprovado (depósito + bônus)
@@ -1205,8 +1315,12 @@ async def webhook_pix_cashin(request: Request, db: Session = Depends(get_db)):
                     if user.balance >= total_to_revert:
                         user.balance -= total_to_revert
                         
+                        # Extrair informações do metadata
+                        metadata = json.loads(deposit.metadata_json) if deposit.metadata_json else {}
+                        promotion_id = metadata.get("promotion_id")
+                        
                         # Reverter uso do cupom se houver
-                        if deposit.coupon_code and deposit.bonus_amount > 0:
+                        if deposit.coupon_code:
                             coupon = db.query(Coupon).filter(Coupon.code == deposit.coupon_code).first()
                             if coupon and coupon.uses > 0:
                                 coupon.uses -= 1
@@ -1216,6 +1330,14 @@ async def webhook_pix_cashin(request: Request, db: Session = Depends(get_db)):
                             ).first()
                             if coupon_use:
                                 db.delete(coupon_use)
+                        
+                        # Reverter uso da promoção se houver
+                        if promotion_id:
+                            promotion_use = db.query(PromotionUse).filter(
+                                PromotionUse.deposit_id == deposit.id
+                            ).first()
+                            if promotion_use:
+                                db.delete(promotion_use)
             deposit.status = TransactionStatus.CANCELLED
         
         # Atualizar metadata

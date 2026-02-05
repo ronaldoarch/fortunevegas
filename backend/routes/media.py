@@ -303,6 +303,8 @@ async def serve_uploaded_file(media_type: str, filename: str):
         "logos": "logos",
         "banner": "banners",
         "banners": "banners",
+        "promotion": "promotions",
+        "promotions": "promotions",
     }
     upload_dir = dir_mapping.get(media_type.lower(), media_type)
     file_path = UPLOAD_BASE_DIR / upload_dir / filename

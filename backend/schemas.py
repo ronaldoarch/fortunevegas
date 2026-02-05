@@ -546,3 +546,47 @@ class AffiliateMetricResponse(AffiliateMetricBase):
     
     class Config:
         from_attributes = True
+
+
+# Promotion Schemas
+class PromotionBase(BaseModel):
+    title: str
+    description: Optional[str] = None
+    type: str  # 'bonus', 'cashback', 'free_spins', 'tournament'
+    bonus_value: float = 0.0
+    bonus_type: str = "percentage"  # 'percentage' ou 'fixed'
+    min_deposit_amount: float = 0.0
+    max_bonus_amount: Optional[float] = None
+    banner_url: Optional[str] = None
+    is_first_deposit_only: bool = False
+    is_active: bool = True
+    start_date: datetime
+    end_date: datetime
+
+
+class PromotionCreate(PromotionBase):
+    pass
+
+
+class PromotionUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    type: Optional[str] = None
+    bonus_value: Optional[float] = None
+    bonus_type: Optional[str] = None
+    min_deposit_amount: Optional[float] = None
+    max_bonus_amount: Optional[float] = None
+    banner_url: Optional[str] = None
+    is_first_deposit_only: Optional[bool] = None
+    is_active: Optional[bool] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+
+
+class PromotionResponse(PromotionBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True

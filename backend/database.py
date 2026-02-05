@@ -337,7 +337,47 @@ def run_migrations():
                 conn.execute(text("CREATE INDEX IF NOT EXISTS idx_deposits_coupon_code ON deposits(coupon_code)"))
                 print("✓ Added coupon_code column to deposits")
             
-            # 16. Adicionar coluna rtp em igamewin_agents (se não existir)
+            # 16. Criar tabela promotions (se não existir)
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS promotions (
+                    id SERIAL PRIMARY KEY,
+                    title VARCHAR(255) NOT NULL,
+                    description TEXT,
+                    type VARCHAR(50) NOT NULL,
+                    bonus_value FLOAT NOT NULL DEFAULT 0.0,
+                    bonus_type VARCHAR(20) NOT NULL DEFAULT 'percentage',
+                    min_deposit_amount FLOAT NOT NULL DEFAULT 0.0,
+                    max_bonus_amount FLOAT,
+                    banner_url VARCHAR(500),
+                    is_first_deposit_only BOOLEAN NOT NULL DEFAULT FALSE,
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    start_date TIMESTAMP NOT NULL,
+                    end_date TIMESTAMP NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_promotions_is_active ON promotions(is_active)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_promotions_is_first_deposit_only ON promotions(is_first_deposit_only)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_promotions_start_date ON promotions(start_date)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_promotions_end_date ON promotions(end_date)"))
+            
+            # 17. Criar tabela promotion_uses (se não existir)
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS promotion_uses (
+                    id SERIAL PRIMARY KEY,
+                    promotion_id INTEGER NOT NULL REFERENCES promotions(id),
+                    user_id INTEGER NOT NULL REFERENCES users(id),
+                    deposit_id INTEGER REFERENCES deposits(id),
+                    bonus_amount FLOAT NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_promotion_uses_promotion_id ON promotion_uses(promotion_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_promotion_uses_user_id ON promotion_uses(user_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_promotion_uses_deposit_id ON promotion_uses(deposit_id)"))
+            
+            # 18. Adicionar coluna rtp em igamewin_agents (se não existir)
             result = conn.execute(text("""
                 SELECT column_name 
                 FROM information_schema.columns 
