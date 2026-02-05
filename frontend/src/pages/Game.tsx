@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { ArrowLeft, Loader2, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Loader2, AlertCircle, Maximize2, Minimize2, X } from 'lucide-react';
 
 // Backend FastAPI - usa variável de ambiente ou fallback para localhost
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -13,6 +13,10 @@ export default function Game() {
   const [gameUrl, setGameUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [headerVisible, setHeaderVisible] = useState(true);
+  const gameContainerRef = useRef<HTMLDivElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
     // Aguardar o AuthContext terminar de carregar
@@ -26,8 +30,9 @@ export default function Game() {
       return;
     }
 
-    // Verificar se o usuário tem saldo
-    if (!user.balance || user.balance <= 0) {
+    // Verificar se o usuário tem saldo (real + bônus)
+    const totalBalance = (user.balance || 0) + (user.bonus_balance || 0);
+    if (totalBalance <= 0) {
       setError('Você precisa ter saldo para jogar. Faça um depósito primeiro.');
       setLoading(false);
       return;
@@ -63,6 +68,67 @@ export default function Game() {
 
     launchGame();
   }, [gameCode, token, user, authLoading]);
+
+  // Detectar mudanças de fullscreen
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
+    };
+  }, []);
+
+  // Função para entrar em fullscreen
+  const enterFullscreen = async () => {
+    const container = gameContainerRef.current;
+    if (!container) return;
+
+    try {
+      if (container.requestFullscreen) {
+        await container.requestFullscreen();
+      } else if ((container as any).webkitRequestFullscreen) {
+        await (container as any).webkitRequestFullscreen();
+      } else if ((container as any).mozRequestFullScreen) {
+        await (container as any).mozRequestFullScreen();
+      } else if ((container as any).msRequestFullscreen) {
+        await (container as any).msRequestFullscreen();
+      }
+      setHeaderVisible(false);
+    } catch (err) {
+      console.error('Erro ao entrar em fullscreen:', err);
+    }
+  };
+
+  // Função para sair de fullscreen
+  const exitFullscreen = async () => {
+    try {
+      if (document.exitFullscreen) {
+        await document.exitFullscreen();
+      } else if ((document as any).webkitExitFullscreen) {
+        await (document as any).webkitExitFullscreen();
+      } else if ((document as any).mozCancelFullScreen) {
+        await (document as any).mozCancelFullScreen();
+      } else if ((document as any).msExitFullscreen) {
+        await (document as any).msExitFullscreen();
+      }
+      setHeaderVisible(true);
+    } catch (err) {
+      console.error('Erro ao sair de fullscreen:', err);
+    }
+  };
+
+  // Detectar se é mobile
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
   if (loading) {
     return (
@@ -105,31 +171,95 @@ export default function Game() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0e0f] text-white">
-      {/* Header com botão voltar */}
-      <div className="bg-[#0a4d3e] border-b border-[#0d5d4b] sticky top-0 z-40">
-        <div className="container mx-auto px-4 py-3">
-          <button
-            onClick={() => navigate('/')}
-            className="flex items-center gap-2 text-white hover:text-[#d4af37] transition-colors"
-          >
-            <ArrowLeft size={20} />
-            <span className="font-medium">Voltar</span>
-          </button>
+    <div 
+      ref={gameContainerRef}
+      className={`bg-[#0a0e0f] text-white ${isFullscreen ? 'fixed inset-0 z-50' : 'min-h-screen'}`}
+      style={isFullscreen ? { height: '100vh', width: '100vw' } : {}}
+    >
+      {/* Header com botão voltar - oculto em fullscreen ou mobile */}
+      {headerVisible && !isFullscreen && (
+        <div className="bg-[#0a4d3e] border-b border-[#0d5d4b] sticky top-0 z-40">
+          <div className="container mx-auto px-4 py-3 flex items-center justify-between">
+            <button
+              onClick={() => navigate('/')}
+              className="flex items-center gap-2 text-white hover:text-[#d4af37] transition-colors"
+            >
+              <ArrowLeft size={20} />
+              <span className="font-medium">Voltar</span>
+            </button>
+            <button
+              onClick={enterFullscreen}
+              className="flex items-center gap-2 text-white hover:text-[#d4af37] transition-colors"
+              title="Tela cheia"
+            >
+              <Maximize2 size={20} />
+            </button>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Botão de sair do fullscreen - apenas quando em fullscreen */}
+      {isFullscreen && (
+        <div className="fixed top-0 left-0 right-0 z-50 bg-[#0a4d3e]/90 backdrop-blur-sm border-b border-[#0d5d4b]">
+          <div className="container mx-auto px-4 py-2 flex items-center justify-between">
+            <button
+              onClick={exitFullscreen}
+              className="flex items-center gap-2 text-white hover:text-[#d4af37] transition-colors"
+              title="Sair da tela cheia"
+            >
+              <Minimize2 size={20} />
+              <span className="font-medium text-sm">Sair</span>
+            </button>
+            <button
+              onClick={() => {
+                exitFullscreen();
+                navigate('/');
+              }}
+              className="flex items-center gap-2 text-white hover:text-red-400 transition-colors"
+              title="Fechar jogo"
+            >
+              <X size={20} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Iframe do jogo */}
       {gameUrl && (
-        <div className="w-full h-[calc(100vh-60px)]">
+        <div 
+          className="w-full"
+          style={{
+            height: isFullscreen 
+              ? '100vh' 
+              : isMobile 
+                ? 'calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom))'
+                : 'calc(100vh - 60px)'
+          }}
+        >
           <iframe
+            ref={iframeRef}
             src={gameUrl}
             className="w-full h-full border-0"
             title="Jogo"
             allow="fullscreen; autoplay; payment; geolocation"
             allowFullScreen
+            style={{
+              height: '100%',
+              width: '100%'
+            }}
           />
         </div>
+      )}
+
+      {/* Botão flutuante para fullscreen no mobile - apenas quando não está em fullscreen */}
+      {isMobile && !isFullscreen && headerVisible && (
+        <button
+          onClick={enterFullscreen}
+          className="fixed bottom-20 right-4 z-50 bg-[#d4af37] hover:bg-[#ffd700] text-black p-3 rounded-full shadow-lg transition-colors"
+          title="Tela cheia"
+        >
+          <Maximize2 size={24} />
+        </button>
       )}
     </div>
   );

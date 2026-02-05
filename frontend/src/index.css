@@ -105,3 +105,45 @@ html {
 .sidebar-custom button:hover {
   transform: translateX(2px);
 }
+
+/* Mobile fullscreen styles */
+@media (max-width: 768px) {
+  html, body {
+    height: 100%;
+    height: -webkit-fill-available;
+    overflow: hidden;
+  }
+  
+  #root {
+    height: 100%;
+    height: -webkit-fill-available;
+  }
+  
+  /* Ocultar barras de navegação do navegador quando possível */
+  @supports (-webkit-touch-callout: none) {
+    /* iOS Safari */
+    body {
+      height: -webkit-fill-available;
+    }
+  }
+}
+
+/* Fullscreen styles */
+:fullscreen,
+:-webkit-full-screen,
+:-moz-full-screen,
+:-ms-fullscreen {
+  width: 100vw;
+  height: 100vh;
+  background: #0a0e0f;
+}
+
+/* Prevenir zoom no mobile durante interação */
+@media (max-width: 768px) {
+  input,
+  textarea,
+  select,
+  button {
+    font-size: 16px !important;
+  }
+}
