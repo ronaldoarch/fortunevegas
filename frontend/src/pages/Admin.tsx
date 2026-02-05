@@ -191,13 +191,6 @@ export default function Admin() {
             </NavSection>
             
             <NavSection
-              title="Marketing"
-              expanded={expandedSections.marketing}
-              onToggle={() => setExpandedSections({...expandedSections, marketing: !expandedSections.marketing})}
-            >
-            </NavSection>
-            
-            <NavSection
               title="Geral"
               expanded={expandedSections.geral}
               onToggle={() => setExpandedSections({...expandedSections, geral: !expandedSections.geral})}
