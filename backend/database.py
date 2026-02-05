@@ -393,10 +393,11 @@ def run_migrations():
             
             # Corrigir depósitos já aprovados que foram creditados antes da separação de saldo
             print("Corrigindo depósitos já aprovados...")
+            # Usar CAST para comparar com o enum corretamente
             deposits_result = conn.execute(text("""
                 SELECT d.id, d.user_id, d.amount, d.bonus_amount, d.coupon_code, d.metadata_json
                 FROM deposits d
-                WHERE d.status = 'approved' AND d.bonus_amount > 0
+                WHERE d.status::text = 'approved' AND d.bonus_amount > 0
             """))
             deposits = deposits_result.fetchall()
             
