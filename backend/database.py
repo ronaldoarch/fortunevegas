@@ -30,21 +30,43 @@ def run_migrations():
             # 0. Adicionar 'manager' ao enum userrole se não existir
             print("Verificando enum userrole...")
             try:
-                conn.execute(text("""
-                    DO $$ 
-                    BEGIN
-                        IF NOT EXISTS (
-                            SELECT 1 FROM pg_enum 
-                            WHERE enumlabel = 'manager' 
-                            AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'userrole')
-                        ) THEN
-                            ALTER TYPE userrole ADD VALUE 'manager';
-                        END IF;
-                    END $$;
+                # Verificar se o valor 'manager' já existe no enum
+                result = conn.execute(text("""
+                    SELECT 1 FROM pg_enum 
+                    WHERE enumlabel = 'manager' 
+                    AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'userrole')
                 """))
-                print("✓ Enum userrole atualizado (manager adicionado se necessário)")
+                if result.fetchone() is None:
+                    # Adicionar valor ao enum usando DO block para evitar erro se já existir
+                    conn.execute(text("""
+                        DO $$ 
+                        BEGIN
+                            IF NOT EXISTS (
+                                SELECT 1 FROM pg_enum 
+                                WHERE enumlabel = 'manager' 
+                                AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'userrole')
+                            ) THEN
+                                ALTER TYPE userrole ADD VALUE 'manager';
+                            END IF;
+                        EXCEPTION 
+                            WHEN duplicate_object THEN NULL;
+                        END $$;
+                    """))
+                    print("✓ Enum userrole atualizado: 'manager' adicionado")
+                else:
+                    print("✓ Enum userrole já contém 'manager'")
             except Exception as e:
-                print(f"⚠️ Erro ao atualizar enum userrole (pode já existir): {str(e)}")
+                # Tentar método direto se o método anterior falhar
+                try:
+                    conn.execute(text("ALTER TYPE userrole ADD VALUE 'manager'"))
+                    print("✓ Enum userrole atualizado: 'manager' adicionado (método direto)")
+                except Exception as e2:
+                    # Se falhar, pode ser que já exista - continuar normalmente
+                    if 'already exists' in str(e2).lower() or 'duplicate' in str(e2).lower():
+                        print("✓ Enum userrole já contém 'manager' (verificado por exceção)")
+                    else:
+                        print(f"⚠️ Erro ao atualizar enum userrole: {str(e2)}")
+                        print("⚠️ Você pode precisar executar manualmente: ALTER TYPE userrole ADD VALUE 'manager';")
             
             # 1. Criar tabela affiliates primeiro
             conn.execute(text("""
