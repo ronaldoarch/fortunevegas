@@ -10,6 +10,7 @@ import Afiliado from './pages/Afiliado';
 import Gerente from './pages/Gerente';
 import Historico from './pages/Historico';
 import Apostas from './pages/Apostas';
+import Promocoes from './pages/Promocoes';
 
 export default function AppRouter() {
   return (
@@ -24,6 +25,7 @@ export default function AppRouter() {
         <Route path="/gerente" element={<Gerente />} />
         <Route path="/historico" element={<Historico />} />
         <Route path="/apostas" element={<Apostas />} />
+        <Route path="/promocoes" element={<Promocoes />} />
         <Route path="/admin/login" element={<AdminLogin />} />
         <Route path="/admin" element={<Admin />} />
         <Route path="*" element={<Navigate to="/" replace />} />
