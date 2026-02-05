@@ -16,8 +16,10 @@ from models import (
     TransactionStatus, UserRole, Bet, BetStatus, Notification, NotificationType,
     GameLayout, ProviderLayout, Theme, Affiliate,
     IGameWinProviderConfig, TrackingConfig, TrackingType,
-    SubAffiliate, ManagerSettings, AffiliateMetric, AffiliateMetricType
+    SubAffiliate, ManagerSettings, AffiliateMetric, AffiliateMetricType,
+    Coupon, CouponUse
 )
+import schemas
 from schemas import (
     WebhookCreate,
     WebhookUpdate,
@@ -1897,6 +1899,119 @@ async def delete_notification(
     db.commit()
     
     return {"success": True, "message": "Notificação deletada com sucesso"}
+
+
+# ========== COUPONS ==========
+@router.get("/coupons", response_model=List[schemas.CouponResponse])
+async def get_coupons(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    is_active: Optional[bool] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Listar cupons"""
+    query = db.query(Coupon)
+    
+    if is_active is not None:
+        query = query.filter(Coupon.is_active == is_active)
+    
+    coupons = query.order_by(desc(Coupon.created_at)).offset(skip).limit(limit).all()
+    return coupons
+
+
+@router.post("/coupons", response_model=schemas.CouponResponse, status_code=status.HTTP_201_CREATED)
+async def create_coupon(
+    coupon_data: schemas.CouponCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Criar cupom"""
+    # Verificar se código já existe
+    existing = db.query(Coupon).filter(Coupon.code == coupon_data.code.upper().strip()).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Código de cupom já existe")
+    
+    coupon = Coupon(
+        code=coupon_data.code.upper().strip(),
+        type=coupon_data.type,
+        value=coupon_data.value,
+        max_uses=coupon_data.max_uses,
+        valid_from=coupon_data.valid_from,
+        valid_until=coupon_data.valid_until,
+        min_deposit_amount=coupon_data.min_deposit_amount,
+        max_bonus_amount=coupon_data.max_bonus_amount,
+        is_active=coupon_data.is_active
+    )
+    db.add(coupon)
+    db.commit()
+    db.refresh(coupon)
+    
+    # Criar notificação global sobre o novo cupom
+    notification = Notification(
+        title="🎁 Novo Cupom Disponível!",
+        message=f"Cupom {coupon.code}: {coupon.value}{'%' if coupon.type == 'percentage' else ' reais'} de bônus! Use no seu próximo depósito.",
+        type=NotificationType.PROMOTION,
+        user_id=None,  # Notificação global
+        link="/depositar",
+        is_active=True,
+        is_read=False,
+        metadata_json=json.dumps({"coupon_code": coupon.code})
+    )
+    db.add(notification)
+    db.commit()
+    
+    return coupon
+
+
+@router.put("/coupons/{coupon_id}", response_model=schemas.CouponResponse)
+async def update_coupon(
+    coupon_id: int,
+    coupon_data: schemas.CouponUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Atualizar cupom"""
+    coupon = db.query(Coupon).filter(Coupon.id == coupon_id).first()
+    if not coupon:
+        raise HTTPException(status_code=404, detail="Cupom não encontrado")
+    
+    update_data = coupon_data.model_dump(exclude_unset=True)
+    
+    # Se código está sendo atualizado, verificar duplicidade
+    if "code" in update_data:
+        code_upper = update_data["code"].upper().strip()
+        existing = db.query(Coupon).filter(
+            Coupon.code == code_upper,
+            Coupon.id != coupon_id
+        ).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Código de cupom já existe")
+        update_data["code"] = code_upper
+    
+    for field, value in update_data.items():
+        setattr(coupon, field, value)
+    
+    db.commit()
+    db.refresh(coupon)
+    return coupon
+
+
+@router.delete("/coupons/{coupon_id}")
+async def delete_coupon(
+    coupon_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Deletar cupom"""
+    coupon = db.query(Coupon).filter(Coupon.id == coupon_id).first()
+    if not coupon:
+        raise HTTPException(status_code=404, detail="Cupom não encontrado")
+    
+    db.delete(coupon)
+    db.commit()
+    
+    return {"success": True, "message": "Cupom deletado com sucesso"}
 
 
 # ========== GAME LAYOUT ==========

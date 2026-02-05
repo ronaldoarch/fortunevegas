@@ -45,6 +45,7 @@ class User(Base):
     bets = relationship("Bet")
     notifications = relationship("Notification")
     affiliate = relationship("Affiliate")
+    coupon_uses = relationship("CouponUse", back_populates="user")
 
 
 class Gateway(Base):
@@ -80,6 +81,8 @@ class Deposit(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     gateway_id = Column(Integer, ForeignKey("gateways.id"))
     amount = Column(Float, nullable=False)
+    bonus_amount = Column(Float, default=0.0, nullable=False)  # Valor do bônus aplicado via cupom
+    coupon_code = Column(String(50), nullable=True, index=True)  # Código do cupom usado
     status = Column(Enum(TransactionStatus), default=TransactionStatus.PENDING, nullable=False)
     transaction_id = Column(String(255), unique=True, index=True)
     external_id = Column(String(255), index=True)  # ID from gateway
@@ -90,6 +93,7 @@ class Deposit(Base):
     # Relationships
     user = relationship("User", back_populates="deposits")
     gateway = relationship("Gateway")
+    coupon_uses = relationship("CouponUse", back_populates="deposit")
 
 
 class Withdrawal(Base):
@@ -214,6 +218,45 @@ class Notification(Base):
     
     # Relationships
     user = relationship("User")
+
+
+class Coupon(Base):
+    """Sistema de cupons de desconto/bônus"""
+    __tablename__ = "coupons"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String(50), unique=True, nullable=False, index=True)  # Código do cupom (ex: BONUS50)
+    type = Column(String(20), nullable=False)  # 'percentage' ou 'fixed'
+    value = Column(Float, nullable=False)  # Valor do desconto (percentual ou fixo)
+    max_uses = Column(Integer, nullable=True)  # Máximo de usos (null = ilimitado)
+    uses = Column(Integer, default=0, nullable=False)  # Quantidade de vezes usado
+    valid_from = Column(DateTime, nullable=False)  # Data de início da validade
+    valid_until = Column(DateTime, nullable=False)  # Data de fim da validade
+    is_active = Column(Boolean, default=True, nullable=False)
+    min_deposit_amount = Column(Float, default=0.0, nullable=False)  # Depósito mínimo para usar o cupom
+    max_bonus_amount = Column(Float, nullable=True)  # Valor máximo do bônus (null = sem limite)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    coupon_uses = relationship("CouponUse", back_populates="coupon")
+
+
+class CouponUse(Base):
+    """Registro de uso de cupons por usuários"""
+    __tablename__ = "coupon_uses"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    coupon_id = Column(Integer, ForeignKey("coupons.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    deposit_id = Column(Integer, ForeignKey("deposits.id"), nullable=True)  # Depósito relacionado
+    bonus_amount = Column(Float, nullable=False)  # Valor do bônus aplicado
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    
+    # Relationships
+    coupon = relationship("Coupon", back_populates="coupon_uses")
+    user = relationship("User")
+    deposit = relationship("Deposit")
 
 
 class ProviderLayout(Base):

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from typing import Optional, List
 from sqlalchemy import desc, or_
 from database import get_db
-from models import User, Deposit, Withdrawal, Gateway, TransactionStatus, FTDSettings, WebhookEventType, Bet, BetStatus, Notification
+from models import User, Deposit, Withdrawal, Gateway, TransactionStatus, FTDSettings, WebhookEventType, Bet, BetStatus, Notification, Coupon, CouponUse
 from gatebox_api import GateboxAPI
 from schemas import DepositResponse, WithdrawalResponse, DepositPixRequest, WithdrawalPixRequest
 from dependencies import get_current_user
@@ -111,6 +111,16 @@ async def create_pix_deposit(
     
     if max_deposit > 0 and deposit_data.amount > max_deposit:
         raise HTTPException(status_code=400, detail=f"Valor máximo de depósito é R$ {max_deposit:.2f}")
+    
+    # Validar e calcular bônus do cupom se fornecido
+    bonus_amount = 0.0
+    coupon = None
+    if deposit_data.coupon_code:
+        coupon, bonus_amount, coupon_error = validate_and_calculate_coupon_bonus(
+            deposit_data.coupon_code, deposit_data.amount, user.id, db
+        )
+        if coupon_error:
+            raise HTTPException(status_code=400, detail=coupon_error)
     
     # Validar dados do usuário
     if not deposit_data.payer_name or len(deposit_data.payer_name.strip()) < 3:
@@ -264,6 +274,8 @@ async def create_pix_deposit(
         user_id=user.id,
         gateway_id=gateway.id,
         amount=deposit_data.amount,
+        bonus_amount=bonus_amount,
+        coupon_code=deposit_data.coupon_code.upper().strip() if deposit_data.coupon_code else None,
         status=TransactionStatus.PENDING,
         transaction_id=transaction_id_gatebox or str(uuid.uuid4()),
         external_id=external_id,
@@ -347,24 +359,54 @@ async def check_deposit_status(
     if status_upper in ["PAID", "PAID_OUT", "CONFIRMED", "APPROVED", "SUCCESS", "COMPLETED"]:
         if deposit.status != TransactionStatus.APPROVED:
             deposit.status = TransactionStatus.APPROVED
-            # Adicionar saldo ao usuário
+            # Adicionar saldo ao usuário (valor do depósito + bônus do cupom)
             user = db.query(User).filter(User.id == deposit.user_id).first()
             if user:
-                user.balance += deposit.amount
+                total_to_credit = deposit.amount + deposit.bonus_amount
+                user.balance += total_to_credit
+                
+                # Registrar uso do cupom se houver
+                if deposit.coupon_code and deposit.bonus_amount > 0:
+                    coupon = db.query(Coupon).filter(Coupon.code == deposit.coupon_code).first()
+                    if coupon:
+                        coupon.uses += 1
+                        coupon_use = CouponUse(
+                            coupon_id=coupon.id,
+                            user_id=user.id,
+                            deposit_id=deposit.id,
+                            bonus_amount=deposit.bonus_amount
+                        )
+                        db.add(coupon_use)
+                
                 db.commit()
                 return {
                     "deposit_id": deposit.id,
                     "current_status": "APPROVED",
                     "gatebox_status": gatebox_status,
                     "balance_credited": True,
-                    "new_balance": user.balance
+                    "new_balance": user.balance,
+                    "bonus_applied": deposit.bonus_amount
                 }
     elif status_upper in ["CANCELLED", "CANCELED", "REJECTED", "FAILED", "CHARGEBACK", "EXPIRED"]:
         if deposit.status == TransactionStatus.APPROVED:
-            # Reverter saldo se já foi aprovado
+            # Reverter saldo se já foi aprovado (depósito + bônus)
             user = db.query(User).filter(User.id == deposit.user_id).first()
-            if user and user.balance >= deposit.amount:
-                user.balance -= deposit.amount
+            if user:
+                total_to_revert = deposit.amount + deposit.bonus_amount
+                if user.balance >= total_to_revert:
+                    user.balance -= total_to_revert
+                    
+                    # Reverter uso do cupom se houver
+                    if deposit.coupon_code and deposit.bonus_amount > 0:
+                        coupon = db.query(Coupon).filter(Coupon.code == deposit.coupon_code).first()
+                        if coupon and coupon.uses > 0:
+                            coupon.uses -= 1
+                        # Remover registro de uso
+                        coupon_use = db.query(CouponUse).filter(
+                            CouponUse.deposit_id == deposit.id
+                        ).first()
+                        if coupon_use:
+                            db.delete(coupon_use)
         deposit.status = TransactionStatus.CANCELLED
         db.commit()
     
@@ -790,12 +832,28 @@ async def _process_pix_cashin(data: dict, db: Session):
         if deposit.status != TransactionStatus.APPROVED:
             print(f"[WEBHOOK] Creditando saldo - Status mudando de {deposit.status.value} para APPROVED")
             deposit.status = TransactionStatus.APPROVED
-            # Adicionar saldo ao usuário
+            # Adicionar saldo ao usuário (valor do depósito + bônus do cupom)
             user = db.query(User).filter(User.id == deposit.user_id).first()
             if user:
                 old_balance = user.balance
-                user.balance += deposit.amount
-                print(f"[WEBHOOK] Saldo creditado - Usuário ID: {user.id}, Saldo anterior: {old_balance}, Saldo novo: {user.balance}, Valor creditado: {deposit.amount}")
+                total_to_credit = deposit.amount + deposit.bonus_amount
+                user.balance += total_to_credit
+                
+                # Registrar uso do cupom se houver
+                if deposit.coupon_code and deposit.bonus_amount > 0:
+                    coupon = db.query(Coupon).filter(Coupon.code == deposit.coupon_code).first()
+                    if coupon:
+                        coupon.uses += 1
+                        coupon_use = CouponUse(
+                            coupon_id=coupon.id,
+                            user_id=user.id,
+                            deposit_id=deposit.id,
+                            bonus_amount=deposit.bonus_amount
+                        )
+                        db.add(coupon_use)
+                        print(f"[WEBHOOK] Cupom aplicado - Código: {deposit.coupon_code}, Bônus: R$ {deposit.bonus_amount:.2f}")
+                
+                print(f"[WEBHOOK] Saldo creditado - Usuário ID: {user.id}, Saldo anterior: {old_balance}, Saldo novo: {user.balance}, Depósito: R$ {deposit.amount:.2f}, Bônus: R$ {deposit.bonus_amount:.2f}, Total: R$ {total_to_credit:.2f}")
             else:
                 print(f"[WEBHOOK] ERRO: Usuário não encontrado - user_id: {deposit.user_id}")
         else:
@@ -803,12 +861,28 @@ async def _process_pix_cashin(data: dict, db: Session):
     elif status_upper in ["CANCELLED", "CANCELED", "REJECTED", "FAILED", "CHARGEBACK", "EXPIRED"]:
         print(f"[WEBHOOK] Cancelando depósito - Status: {status_upper}")
         if deposit.status == TransactionStatus.APPROVED:
-            # Reverter saldo se já foi aprovado
+            # Reverter saldo se já foi aprovado (depósito + bônus)
             user = db.query(User).filter(User.id == deposit.user_id).first()
-            if user and user.balance >= deposit.amount:
-                old_balance = user.balance
-                user.balance -= deposit.amount
-                print(f"[WEBHOOK] Saldo revertido - Usuário ID: {user.id}, Saldo anterior: {old_balance}, Saldo novo: {user.balance}, Valor revertido: {deposit.amount}")
+            if user:
+                total_to_revert = deposit.amount + deposit.bonus_amount
+                if user.balance >= total_to_revert:
+                    old_balance = user.balance
+                    user.balance -= total_to_revert
+                    
+                    # Reverter uso do cupom se houver
+                    if deposit.coupon_code and deposit.bonus_amount > 0:
+                        coupon = db.query(Coupon).filter(Coupon.code == deposit.coupon_code).first()
+                        if coupon and coupon.uses > 0:
+                            coupon.uses -= 1
+                        # Remover registro de uso
+                        coupon_use = db.query(CouponUse).filter(
+                            CouponUse.deposit_id == deposit.id
+                        ).first()
+                        if coupon_use:
+                            db.delete(coupon_use)
+                            print(f"[WEBHOOK] Uso de cupom revertido - Código: {deposit.coupon_code}")
+                    
+                    print(f"[WEBHOOK] Saldo revertido - Usuário ID: {user.id}, Saldo anterior: {old_balance}, Saldo novo: {user.balance}, Depósito revertido: R$ {deposit.amount:.2f}, Bônus revertido: R$ {deposit.bonus_amount:.2f}, Total: R$ {total_to_revert:.2f}")
         deposit.status = TransactionStatus.CANCELLED
     else:
         print(f"[WEBHOOK] Status não reconhecido ou ainda pendente - Status: {status_upper}")
@@ -1104,16 +1178,44 @@ async def webhook_pix_cashin(request: Request, db: Session = Depends(get_db)):
         if status_upper in ["PAID", "PAID_OUT", "CONFIRMED", "APPROVED", "SUCCESS"]:
             if deposit.status != TransactionStatus.APPROVED:
                 deposit.status = TransactionStatus.APPROVED
-                # Adicionar saldo ao usuário
+                # Adicionar saldo ao usuário (valor do depósito + bônus do cupom)
                 user = db.query(User).filter(User.id == deposit.user_id).first()
                 if user:
-                    user.balance += deposit.amount
+                    total_to_credit = deposit.amount + deposit.bonus_amount
+                    user.balance += total_to_credit
+                    
+                    # Registrar uso do cupom se houver
+                    if deposit.coupon_code and deposit.bonus_amount > 0:
+                        coupon = db.query(Coupon).filter(Coupon.code == deposit.coupon_code).first()
+                        if coupon:
+                            coupon.uses += 1
+                            coupon_use = CouponUse(
+                                coupon_id=coupon.id,
+                                user_id=user.id,
+                                deposit_id=deposit.id,
+                                bonus_amount=deposit.bonus_amount
+                            )
+                            db.add(coupon_use)
         elif status_upper in ["CANCELLED", "CANCELED", "REJECTED", "FAILED", "CHARGEBACK"]:
             if deposit.status == TransactionStatus.APPROVED:
-                # Reverter saldo se já foi aprovado
+                # Reverter saldo se já foi aprovado (depósito + bônus)
                 user = db.query(User).filter(User.id == deposit.user_id).first()
-                if user and user.balance >= deposit.amount:
-                    user.balance -= deposit.amount
+                if user:
+                    total_to_revert = deposit.amount + deposit.bonus_amount
+                    if user.balance >= total_to_revert:
+                        user.balance -= total_to_revert
+                        
+                        # Reverter uso do cupom se houver
+                        if deposit.coupon_code and deposit.bonus_amount > 0:
+                            coupon = db.query(Coupon).filter(Coupon.code == deposit.coupon_code).first()
+                            if coupon and coupon.uses > 0:
+                                coupon.uses -= 1
+                            # Remover registro de uso
+                            coupon_use = db.query(CouponUse).filter(
+                                CouponUse.deposit_id == deposit.id
+                            ).first()
+                            if coupon_use:
+                                db.delete(coupon_use)
             deposit.status = TransactionStatus.CANCELLED
         
         # Atualizar metadata
@@ -1340,3 +1442,98 @@ async def mark_all_notifications_read(
     db.commit()
     
     return {"success": True, "count": len(notifications)}
+
+
+# ========== COUPON VALIDATION ==========
+def validate_and_calculate_coupon_bonus(
+    coupon_code: str,
+    deposit_amount: float,
+    user_id: int,
+    db: Session
+) -> tuple[Optional[Coupon], float, str]:
+    """
+    Valida cupom e calcula o valor do bônus
+    
+    Returns:
+        (coupon, bonus_amount, error_message)
+        Se cupom válido: (coupon, bonus_amount, "")
+        Se inválido: (None, 0.0, error_message)
+    """
+    if not coupon_code or not coupon_code.strip():
+        return None, 0.0, ""
+    
+    coupon_code = coupon_code.strip().upper()
+    
+    # Buscar cupom
+    coupon = db.query(Coupon).filter(
+        Coupon.code == coupon_code,
+        Coupon.is_active == True
+    ).first()
+    
+    if not coupon:
+        return None, 0.0, "Cupom não encontrado ou inválido"
+    
+    # Verificar validade
+    now = datetime.utcnow()
+    if coupon.valid_from > now:
+        return None, 0.0, f"Cupom ainda não está válido. Válido a partir de {coupon.valid_from.strftime('%d/%m/%Y')}"
+    
+    if coupon.valid_until < now:
+        return None, 0.0, f"Cupom expirado. Válido até {coupon.valid_until.strftime('%d/%m/%Y')}"
+    
+    # Verificar depósito mínimo
+    if deposit_amount < coupon.min_deposit_amount:
+        return None, 0.0, f"Depósito mínimo de R$ {coupon.min_deposit_amount:.2f} para usar este cupom"
+    
+    # Verificar limite de usos
+    if coupon.max_uses is not None and coupon.uses >= coupon.max_uses:
+        return None, 0.0, "Cupom esgotado (limite de usos atingido)"
+    
+    # Verificar se usuário já usou este cupom
+    existing_use = db.query(CouponUse).filter(
+        CouponUse.coupon_id == coupon.id,
+        CouponUse.user_id == user_id
+    ).first()
+    
+    if existing_use:
+        return None, 0.0, "Você já usou este cupom anteriormente"
+    
+    # Calcular bônus
+    if coupon.type == "percentage":
+        bonus_amount = (deposit_amount * coupon.value) / 100
+    else:  # fixed
+        bonus_amount = coupon.value
+    
+    # Aplicar limite máximo de bônus se existir
+    if coupon.max_bonus_amount is not None and bonus_amount > coupon.max_bonus_amount:
+        bonus_amount = coupon.max_bonus_amount
+    
+    return coupon, bonus_amount, ""
+
+
+@router.post("/validate-coupon")
+async def validate_coupon(
+    coupon_code: str,
+    deposit_amount: float,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Validar cupom e retornar valor do bônus"""
+    coupon, bonus_amount, error = validate_and_calculate_coupon_bonus(
+        coupon_code, deposit_amount, current_user.id, db
+    )
+    
+    if error:
+        return {
+            "valid": False,
+            "bonus_amount": 0.0,
+            "message": error
+        }
+    
+    from schemas import CouponResponse
+    return {
+        "valid": True,
+        "coupon": CouponResponse.model_validate(coupon),
+        "bonus_amount": bonus_amount,
+        "message": f"Cupom válido! Bônus de R$ {bonus_amount:.2f}"
+    }

@@ -11,6 +11,11 @@ export default function Depositar() {
   const navigate = useNavigate();
   const { user, token } = useAuth();
   const [amount, setAmount] = useState('');
+  const [couponCode, setCouponCode] = useState('');
+  const [couponBonus, setCouponBonus] = useState(0);
+  const [couponValidating, setCouponValidating] = useState(false);
+  const [couponError, setCouponError] = useState('');
+  const [validatedCoupon, setValidatedCoupon] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [pixData, setPixData] = useState<{
@@ -135,6 +140,51 @@ export default function Depositar() {
     };
   }, [pixData?.deposit_id, token, refreshUser]);
 
+  const validateCoupon = async () => {
+    if (!couponCode.trim()) {
+      setCouponError('');
+      setCouponBonus(0);
+      setValidatedCoupon(null);
+      return;
+    }
+
+    const amountValue = parseFloat(amount.replace(',', '.'));
+    if (isNaN(amountValue) || amountValue <= 0) {
+      setCouponError('Digite um valor de depósito válido primeiro');
+      return;
+    }
+
+    setCouponValidating(true);
+    setCouponError('');
+
+    try {
+      const response = await fetch(`${API_URL}/api/public/payments/validate-coupon?coupon_code=${encodeURIComponent(couponCode.trim().toUpperCase())}&deposit_amount=${amountValue}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      const data = await response.json();
+
+      if (data.valid) {
+        setCouponBonus(data.bonus_amount);
+        setValidatedCoupon(data.coupon);
+        setCouponError('');
+      } else {
+        setCouponError(data.message || 'Cupom inválido');
+        setCouponBonus(0);
+        setValidatedCoupon(null);
+      }
+    } catch (err) {
+      setCouponError('Erro ao validar cupom');
+      setCouponBonus(0);
+      setValidatedCoupon(null);
+    } finally {
+      setCouponValidating(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -142,7 +192,7 @@ export default function Depositar() {
 
     try {
       const amountValue = parseFloat(amount.replace(',', '.'));
-      
+
       if (isNaN(amountValue) || amountValue <= 0) {
         setError('Valor inválido. Digite um valor maior que zero.');
         setLoading(false);
@@ -167,6 +217,13 @@ export default function Depositar() {
         return;
       }
 
+      // Validar cupom se fornecido
+      if (couponCode.trim() && !validatedCoupon) {
+        setError('Por favor, valide o cupom antes de continuar');
+        setLoading(false);
+        return;
+      }
+
       const response = await fetch(`${API_URL}/api/public/payments/deposit/pix`, {
         method: 'POST',
         headers: {
@@ -176,7 +233,8 @@ export default function Depositar() {
         body: JSON.stringify({
           amount: amountValue,
           payer_name: user.username || 'Usuário',
-          payer_tax_id: user.cpf || undefined  // Opcional - só enviar CPF válido, não usar telefone
+          payer_tax_id: user.cpf || undefined,
+          coupon_code: couponCode.trim().toUpperCase() || undefined
         })
       });
 
@@ -392,6 +450,50 @@ export default function Depositar() {
                 <p className="text-gray-400 text-xs mt-2">
                   Saldo atual: R$ {user?.balance.toFixed(2).replace('.', ',') || '0,00'}
                 </p>
+              </div>
+
+              {/* Campo de Cupom */}
+              <div>
+                <label className="block text-gray-300 text-sm mb-2">
+                  Código do Cupom (opcional)
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={couponCode}
+                    onChange={(e) => {
+                      setCouponCode(e.target.value.toUpperCase());
+                      setCouponError('');
+                      setCouponBonus(0);
+                      setValidatedCoupon(null);
+                    }}
+                    onBlur={validateCoupon}
+                    className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white uppercase focus:outline-none focus:ring-2 focus:ring-[#d4af37] focus:border-transparent"
+                    placeholder="BONUS50"
+                    disabled={couponValidating}
+                  />
+                  <button
+                    type="button"
+                    onClick={validateCoupon}
+                    disabled={couponValidating || !couponCode.trim()}
+                    className="px-4 bg-[#d4af37] hover:bg-[#ffd700] text-black font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {couponValidating ? '...' : 'Validar'}
+                  </button>
+                </div>
+                {couponError && (
+                  <p className="text-red-400 text-xs mt-1">{couponError}</p>
+                )}
+                {validatedCoupon && couponBonus > 0 && (
+                  <div className="mt-2 p-3 bg-green-500/20 border border-green-500/50 rounded-lg">
+                    <p className="text-green-400 text-sm font-semibold">
+                      ✅ Cupom válido! Bônus de R$ {couponBonus.toFixed(2).replace('.', ',')}
+                    </p>
+                    <p className="text-green-300 text-xs mt-1">
+                      Você receberá R$ {couponBonus.toFixed(2).replace('.', ',')} de bônus após o depósito ser aprovado
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">

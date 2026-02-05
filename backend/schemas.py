@@ -134,6 +134,8 @@ class DepositResponse(DepositBase):
     status: TransactionStatus
     transaction_id: str
     external_id: Optional[str]
+    bonus_amount: float = 0.0
+    coupon_code: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     
@@ -146,6 +148,7 @@ class DepositPixRequest(BaseModel):
     amount: float
     payer_name: str
     payer_tax_id: Optional[str] = None
+    coupon_code: Optional[str] = None  # Código do cupom opcional
 
 
 # Withdrawal Schemas

@@ -281,7 +281,63 @@ def run_migrations():
             """))
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_manager_settings_manager_id ON manager_settings(manager_id)"))
             
-            # 13. Adicionar coluna rtp em igamewin_agents (se não existir)
+            # 13. Criar tabela coupons (se não existir)
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS coupons (
+                    id SERIAL PRIMARY KEY,
+                    code VARCHAR(50) UNIQUE NOT NULL,
+                    type VARCHAR(20) NOT NULL,
+                    value FLOAT NOT NULL,
+                    max_uses INTEGER,
+                    uses INTEGER NOT NULL DEFAULT 0,
+                    valid_from TIMESTAMP NOT NULL,
+                    valid_until TIMESTAMP NOT NULL,
+                    min_deposit_amount FLOAT NOT NULL DEFAULT 0.0,
+                    max_bonus_amount FLOAT,
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_coupons_code ON coupons(code)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_coupons_is_active ON coupons(is_active)"))
+            
+            # 14. Criar tabela coupon_uses (se não existir)
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS coupon_uses (
+                    id SERIAL PRIMARY KEY,
+                    coupon_id INTEGER NOT NULL REFERENCES coupons(id),
+                    user_id INTEGER NOT NULL REFERENCES users(id),
+                    deposit_id INTEGER REFERENCES deposits(id),
+                    bonus_amount FLOAT NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_coupon_uses_coupon_id ON coupon_uses(coupon_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_coupon_uses_user_id ON coupon_uses(user_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_coupon_uses_deposit_id ON coupon_uses(deposit_id)"))
+            
+            # 15. Adicionar colunas bonus_amount e coupon_code em deposits (se não existirem)
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'deposits' AND column_name = 'bonus_amount'
+            """))
+            if result.fetchone() is None:
+                conn.execute(text("ALTER TABLE deposits ADD COLUMN bonus_amount FLOAT DEFAULT 0.0 NOT NULL"))
+                print("✓ Added bonus_amount column to deposits")
+            
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'deposits' AND column_name = 'coupon_code'
+            """))
+            if result.fetchone() is None:
+                conn.execute(text("ALTER TABLE deposits ADD COLUMN coupon_code VARCHAR(50)"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_deposits_coupon_code ON deposits(coupon_code)"))
+                print("✓ Added coupon_code column to deposits")
+            
+            # 16. Adicionar coluna rtp em igamewin_agents (se não existir)
             result = conn.execute(text("""
                 SELECT column_name 
                 FROM information_schema.columns 
