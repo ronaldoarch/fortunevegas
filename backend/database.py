@@ -281,7 +281,17 @@ def run_migrations():
             """))
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_manager_settings_manager_id ON manager_settings(manager_id)"))
             
-            # 13. Criar tabela coupons (se não existir)
+            # 13. Adicionar coluna bonus_balance em users (se não existir)
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'users' AND column_name = 'bonus_balance'
+            """))
+            if result.fetchone() is None:
+                conn.execute(text("ALTER TABLE users ADD COLUMN bonus_balance FLOAT NOT NULL DEFAULT 0.0"))
+                print("✓ Added bonus_balance column to users")
+            
+            # 14. Criar tabela coupons (se não existir)
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS coupons (
                     id SERIAL PRIMARY KEY,
@@ -294,6 +304,7 @@ def run_migrations():
                     valid_until TIMESTAMP NOT NULL,
                     min_deposit_amount FLOAT NOT NULL DEFAULT 0.0,
                     max_bonus_amount FLOAT,
+                    is_withdrawable BOOLEAN NOT NULL DEFAULT FALSE,
                     is_active BOOLEAN NOT NULL DEFAULT TRUE,
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -350,6 +361,7 @@ def run_migrations():
                     max_bonus_amount FLOAT,
                     banner_url VARCHAR(500),
                     is_first_deposit_only BOOLEAN NOT NULL DEFAULT FALSE,
+                    is_withdrawable BOOLEAN NOT NULL DEFAULT FALSE,
                     is_active BOOLEAN NOT NULL DEFAULT TRUE,
                     start_date TIMESTAMP NOT NULL,
                     end_date TIMESTAMP NOT NULL,
@@ -357,6 +369,26 @@ def run_migrations():
                     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
             """))
+            
+            # Adicionar coluna is_withdrawable em coupons se não existir
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'coupons' AND column_name = 'is_withdrawable'
+            """))
+            if result.fetchone() is None:
+                conn.execute(text("ALTER TABLE coupons ADD COLUMN is_withdrawable BOOLEAN NOT NULL DEFAULT FALSE"))
+                print("✓ Added is_withdrawable column to coupons")
+            
+            # Adicionar coluna is_withdrawable em promotions se não existir
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'promotions' AND column_name = 'is_withdrawable'
+            """))
+            if result.fetchone() is None:
+                conn.execute(text("ALTER TABLE promotions ADD COLUMN is_withdrawable BOOLEAN NOT NULL DEFAULT FALSE"))
+                print("✓ Added is_withdrawable column to promotions")
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_promotions_is_active ON promotions(is_active)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_promotions_is_first_deposit_only ON promotions(is_first_deposit_only)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_promotions_start_date ON promotions(start_date)"))

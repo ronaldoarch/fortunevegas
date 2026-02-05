@@ -31,7 +31,8 @@ class User(Base):
     phone = Column(String(20))
     password_hash = Column(String(255), nullable=False)
     role = Column(Enum(UserRole), default=UserRole.USER, nullable=False)
-    balance = Column(Float, default=0.0, nullable=False)
+    balance = Column(Float, default=0.0, nullable=False)  # Saldo total (real + bônus)
+    bonus_balance = Column(Float, default=0.0, nullable=False)  # Saldo de bônus (não sacável)
     is_active = Column(Boolean, default=True, nullable=False)
     is_verified = Column(Boolean, default=False, nullable=False)
     affiliate_id = Column(Integer, ForeignKey("affiliates.id"), nullable=True)  # Afiliado que trouxe o usuário
@@ -236,6 +237,7 @@ class Coupon(Base):
     is_active = Column(Boolean, default=True, nullable=False)
     min_deposit_amount = Column(Float, default=0.0, nullable=False)  # Depósito mínimo para usar o cupom
     max_bonus_amount = Column(Float, nullable=True)  # Valor máximo do bônus (null = sem limite)
+    is_withdrawable = Column(Boolean, default=False, nullable=False)  # Se o bônus pode ser sacado
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -281,6 +283,7 @@ class Promotion(Base):
     max_bonus_amount = Column(Float, nullable=True)  # Valor máximo do bônus (para percentuais)
     banner_url = Column(String(500), nullable=True)  # URL do banner da promoção
     is_first_deposit_only = Column(Boolean, default=False, nullable=False)  # Se aplica apenas no primeiro depósito
+    is_withdrawable = Column(Boolean, default=False, nullable=False)  # Se o bônus pode ser sacado
     is_active = Column(Boolean, default=True, nullable=False)
     start_date = Column(DateTime, nullable=False)
     end_date = Column(DateTime, nullable=False)

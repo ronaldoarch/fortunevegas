@@ -29,7 +29,8 @@ class UserUpdate(BaseModel):
 class UserResponse(UserBase):
     id: int
     role: UserRole
-    balance: float
+    balance: float  # Saldo total sacável (real + bônus sacáveis + ganhos)
+    bonus_balance: float = 0.0  # Saldo de bônus não sacável
     is_active: bool
     is_verified: bool
     affiliate_id: Optional[int] = None
@@ -558,6 +559,7 @@ class CouponBase(BaseModel):
     valid_until: datetime
     min_deposit_amount: float = 0.0
     max_bonus_amount: Optional[float] = None
+    is_withdrawable: bool = False  # Se o bônus pode ser sacado
     is_active: bool = True
 
 
@@ -574,6 +576,7 @@ class CouponUpdate(BaseModel):
     valid_until: Optional[datetime] = None
     min_deposit_amount: Optional[float] = None
     max_bonus_amount: Optional[float] = None
+    is_withdrawable: Optional[bool] = None
     is_active: Optional[bool] = None
 
 
@@ -610,6 +613,7 @@ class PromotionBase(BaseModel):
     max_bonus_amount: Optional[float] = None
     banner_url: Optional[str] = None
     is_first_deposit_only: bool = False
+    is_withdrawable: bool = False  # Se o bônus pode ser sacado
     is_active: bool = True
     start_date: datetime
     end_date: datetime
@@ -629,50 +633,7 @@ class PromotionUpdate(BaseModel):
     max_bonus_amount: Optional[float] = None
     banner_url: Optional[str] = None
     is_first_deposit_only: Optional[bool] = None
-    is_active: Optional[bool] = None
-    start_date: Optional[datetime] = None
-    end_date: Optional[datetime] = None
-
-
-class PromotionResponse(PromotionBase):
-    id: int
-    created_at: datetime
-    updated_at: datetime
-    
-    class Config:
-        from_attributes = True
-
-
-# Promotion Schemas
-class PromotionBase(BaseModel):
-    title: str
-    description: Optional[str] = None
-    type: str  # 'bonus', 'cashback', 'free_spins', 'tournament'
-    bonus_value: float = 0.0
-    bonus_type: str = "percentage"  # 'percentage' ou 'fixed'
-    min_deposit_amount: float = 0.0
-    max_bonus_amount: Optional[float] = None
-    banner_url: Optional[str] = None
-    is_first_deposit_only: bool = False
-    is_active: bool = True
-    start_date: datetime
-    end_date: datetime
-
-
-class PromotionCreate(PromotionBase):
-    pass
-
-
-class PromotionUpdate(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
-    type: Optional[str] = None
-    bonus_value: Optional[float] = None
-    bonus_type: Optional[str] = None
-    min_deposit_amount: Optional[float] = None
-    max_bonus_amount: Optional[float] = None
-    banner_url: Optional[str] = None
-    is_first_deposit_only: Optional[bool] = None
+    is_withdrawable: Optional[bool] = None
     is_active: Optional[bool] = None
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None

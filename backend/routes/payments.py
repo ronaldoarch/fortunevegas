@@ -401,22 +401,33 @@ async def check_deposit_status(
     if status_upper in ["PAID", "PAID_OUT", "CONFIRMED", "APPROVED", "SUCCESS", "COMPLETED"]:
         if deposit.status != TransactionStatus.APPROVED:
             deposit.status = TransactionStatus.APPROVED
-            # Adicionar saldo ao usuário (valor do depósito + bônus do cupom)
+            # Adicionar saldo ao usuário separando real e bônus
             user = db.query(User).filter(User.id == deposit.user_id).first()
             if user:
-                total_to_credit = deposit.amount + deposit.bonus_amount
-                user.balance += total_to_credit
-                
                 # Extrair informações do metadata
                 metadata = json.loads(deposit.metadata_json) if deposit.metadata_json else {}
                 promotion_id = metadata.get("promotion_id")
                 promotion_bonus = metadata.get("promotion_bonus", 0)
                 coupon_bonus = metadata.get("coupon_bonus", 0)
                 
-                # Registrar uso do cupom se houver
-                if deposit.coupon_code and coupon_bonus > 0:
+                # Valor real depositado (sempre sacável)
+                real_amount = deposit.amount
+                user.balance += real_amount
+                
+                # Bônus total (cupom + promoção)
+                total_bonus = deposit.bonus_amount
+                
+                # Verificar se os bônus são sacáveis
+                withdrawable_bonus = 0.0
+                non_withdrawable_bonus = 0.0
+                
+                if coupon_bonus > 0 and deposit.coupon_code:
                     coupon = db.query(Coupon).filter(Coupon.code == deposit.coupon_code).first()
                     if coupon:
+                        if coupon.is_withdrawable:
+                            withdrawable_bonus += coupon_bonus
+                        else:
+                            non_withdrawable_bonus += coupon_bonus
                         coupon.uses += 1
                         coupon_use = CouponUse(
                             coupon_id=coupon.id,
@@ -426,10 +437,13 @@ async def check_deposit_status(
                         )
                         db.add(coupon_use)
                 
-                # Registrar uso da promoção se houver
-                if promotion_id and promotion_bonus > 0:
+                if promotion_bonus > 0 and promotion_id:
                     promotion = db.query(Promotion).filter(Promotion.id == promotion_id).first()
                     if promotion:
+                        if promotion.is_withdrawable:
+                            withdrawable_bonus += promotion_bonus
+                        else:
+                            non_withdrawable_bonus += promotion_bonus
                         promotion_use = PromotionUse(
                             promotion_id=promotion.id,
                             user_id=user.id,
@@ -437,6 +451,12 @@ async def check_deposit_status(
                             bonus_amount=promotion_bonus
                         )
                         db.add(promotion_use)
+                
+                # Adicionar bônus sacável ao saldo real
+                user.balance += withdrawable_bonus
+                
+                # Adicionar bônus não sacável ao saldo de bônus
+                user.bonus_balance += non_withdrawable_bonus
                 
                 db.commit()
                 return {
@@ -499,8 +519,10 @@ async def create_pix_withdrawal(
     type_key = withdrawal_data.type_key
     document_validation = withdrawal_data.document_validation
     
-    # Verificar saldo
-    if user.balance < amount:
+    # Verificar saldo sacável (apenas saldo real, não inclui bônus não sacável)
+    # Saldo sacável = balance (que já inclui depósitos reais + bônus sacáveis + ganhos dos jogos)
+    withdrawable_balance = user.balance  # balance já é o saldo sacável
+    if withdrawable_balance < amount:
         raise HTTPException(status_code=400, detail="Saldo insuficiente")
     
     if amount <= 0:
@@ -892,12 +914,11 @@ async def _process_pix_cashin(data: dict, db: Session):
         if deposit.status != TransactionStatus.APPROVED:
             print(f"[WEBHOOK] Creditando saldo - Status mudando de {deposit.status.value} para APPROVED")
             deposit.status = TransactionStatus.APPROVED
-            # Adicionar saldo ao usuário (valor do depósito + bônus do cupom)
+            # Adicionar saldo ao usuário separando real e bônus
             user = db.query(User).filter(User.id == deposit.user_id).first()
             if user:
                 old_balance = user.balance
-                total_to_credit = deposit.amount + deposit.bonus_amount
-                user.balance += total_to_credit
+                old_bonus_balance = user.bonus_balance
                 
                 # Extrair informações do metadata
                 metadata = json.loads(deposit.metadata_json) if deposit.metadata_json else {}
@@ -905,10 +926,24 @@ async def _process_pix_cashin(data: dict, db: Session):
                 promotion_bonus = metadata.get("promotion_bonus", 0)
                 coupon_bonus = metadata.get("coupon_bonus", 0)
                 
-                # Registrar uso do cupom se houver
-                if deposit.coupon_code and coupon_bonus > 0:
+                # Valor real depositado (sempre sacável)
+                real_amount = deposit.amount
+                user.balance += real_amount
+                
+                # Bônus total (cupom + promoção)
+                total_bonus = deposit.bonus_amount
+                
+                # Verificar se os bônus são sacáveis
+                withdrawable_bonus = 0.0
+                non_withdrawable_bonus = 0.0
+                
+                if coupon_bonus > 0 and deposit.coupon_code:
                     coupon = db.query(Coupon).filter(Coupon.code == deposit.coupon_code).first()
                     if coupon:
+                        if coupon.is_withdrawable:
+                            withdrawable_bonus += coupon_bonus
+                        else:
+                            non_withdrawable_bonus += coupon_bonus
                         coupon.uses += 1
                         coupon_use = CouponUse(
                             coupon_id=coupon.id,
@@ -917,12 +952,15 @@ async def _process_pix_cashin(data: dict, db: Session):
                             bonus_amount=coupon_bonus
                         )
                         db.add(coupon_use)
-                        print(f"[WEBHOOK] Cupom aplicado - Código: {deposit.coupon_code}, Bônus: R$ {coupon_bonus:.2f}")
+                        print(f"[WEBHOOK] Cupom aplicado - Código: {deposit.coupon_code}, Bônus: R$ {coupon_bonus:.2f}, Sacável: {coupon.is_withdrawable}")
                 
-                # Registrar uso da promoção se houver
-                if promotion_id and promotion_bonus > 0:
+                if promotion_bonus > 0 and promotion_id:
                     promotion = db.query(Promotion).filter(Promotion.id == promotion_id).first()
                     if promotion:
+                        if promotion.is_withdrawable:
+                            withdrawable_bonus += promotion_bonus
+                        else:
+                            non_withdrawable_bonus += promotion_bonus
                         promotion_use = PromotionUse(
                             promotion_id=promotion.id,
                             user_id=user.id,
@@ -930,9 +968,15 @@ async def _process_pix_cashin(data: dict, db: Session):
                             bonus_amount=promotion_bonus
                         )
                         db.add(promotion_use)
-                        print(f"[WEBHOOK] Promoção aplicada - ID: {promotion.id}, Título: {promotion.title}, Bônus: R$ {promotion_bonus:.2f}")
+                        print(f"[WEBHOOK] Promoção aplicada - ID: {promotion.id}, Título: {promotion.title}, Bônus: R$ {promotion_bonus:.2f}, Sacável: {promotion.is_withdrawable}")
                 
-                print(f"[WEBHOOK] Saldo creditado - Usuário ID: {user.id}, Saldo anterior: {old_balance}, Saldo novo: {user.balance}, Depósito: R$ {deposit.amount:.2f}, Bônus: R$ {deposit.bonus_amount:.2f}, Total: R$ {total_to_credit:.2f}")
+                # Adicionar bônus sacável ao saldo real
+                user.balance += withdrawable_bonus
+                
+                # Adicionar bônus não sacável ao saldo de bônus
+                user.bonus_balance += non_withdrawable_bonus
+                
+                print(f"[WEBHOOK] Saldo creditado - Usuário ID: {user.id}, Saldo anterior: {old_balance}, Saldo novo: {user.balance}, Bônus anterior: {old_bonus_balance}, Bônus novo: {user.bonus_balance}, Depósito: R$ {real_amount:.2f}, Bônus sacável: R$ {withdrawable_bonus:.2f}, Bônus não sacável: R$ {non_withdrawable_bonus:.2f}")
             else:
                 print(f"[WEBHOOK] ERRO: Usuário não encontrado - user_id: {deposit.user_id}")
         else:
@@ -943,20 +987,30 @@ async def _process_pix_cashin(data: dict, db: Session):
             # Reverter saldo se já foi aprovado (depósito + bônus)
             user = db.query(User).filter(User.id == deposit.user_id).first()
             if user:
-                total_to_revert = deposit.amount + deposit.bonus_amount
-                if user.balance >= total_to_revert:
+                # Extrair informações do metadata
+                metadata = json.loads(deposit.metadata_json) if deposit.metadata_json else {}
+                promotion_id = metadata.get("promotion_id")
+                promotion_bonus = metadata.get("promotion_bonus", 0)
+                coupon_bonus = metadata.get("coupon_bonus", 0)
+                
+                # Reverter valor real depositado
+                real_amount = deposit.amount
+                if user.balance >= real_amount:
                     old_balance = user.balance
-                    user.balance -= total_to_revert
+                    user.balance -= real_amount
                     
-                    # Extrair informações do metadata
-                    metadata = json.loads(deposit.metadata_json) if deposit.metadata_json else {}
-                    promotion_id = metadata.get("promotion_id")
-                    
-                    # Reverter uso do cupom se houver
-                    if deposit.coupon_code:
+                    # Reverter bônus sacável e não sacável separadamente
+                    if coupon_bonus > 0 and deposit.coupon_code:
                         coupon = db.query(Coupon).filter(Coupon.code == deposit.coupon_code).first()
-                        if coupon and coupon.uses > 0:
-                            coupon.uses -= 1
+                        if coupon:
+                            if coupon.is_withdrawable:
+                                if user.balance >= coupon_bonus:
+                                    user.balance -= coupon_bonus
+                            else:
+                                if user.bonus_balance >= coupon_bonus:
+                                    user.bonus_balance -= coupon_bonus
+                            if coupon.uses > 0:
+                                coupon.uses -= 1
                         # Remover registro de uso
                         coupon_use = db.query(CouponUse).filter(
                             CouponUse.deposit_id == deposit.id
@@ -965,8 +1019,15 @@ async def _process_pix_cashin(data: dict, db: Session):
                             db.delete(coupon_use)
                             print(f"[WEBHOOK] Uso de cupom revertido - Código: {deposit.coupon_code}")
                     
-                    # Reverter uso da promoção se houver
-                    if promotion_id:
+                    if promotion_bonus > 0 and promotion_id:
+                        promotion = db.query(Promotion).filter(Promotion.id == promotion_id).first()
+                        if promotion:
+                            if promotion.is_withdrawable:
+                                if user.balance >= promotion_bonus:
+                                    user.balance -= promotion_bonus
+                            else:
+                                if user.bonus_balance >= promotion_bonus:
+                                    user.bonus_balance -= promotion_bonus
                         promotion_use = db.query(PromotionUse).filter(
                             PromotionUse.deposit_id == deposit.id
                         ).first()
@@ -974,7 +1035,7 @@ async def _process_pix_cashin(data: dict, db: Session):
                             db.delete(promotion_use)
                             print(f"[WEBHOOK] Uso de promoção revertido - ID: {promotion_id}")
                     
-                    print(f"[WEBHOOK] Saldo revertido - Usuário ID: {user.id}, Saldo anterior: {old_balance}, Saldo novo: {user.balance}, Depósito revertido: R$ {deposit.amount:.2f}, Bônus revertido: R$ {deposit.bonus_amount:.2f}, Total: R$ {total_to_revert:.2f}")
+                    print(f"[WEBHOOK] Saldo revertido - Usuário ID: {user.id}, Saldo anterior: {old_balance}, Saldo novo: {user.balance}, Bônus novo: {user.bonus_balance}, Depósito revertido: R$ {real_amount:.2f}, Bônus revertido: R$ {deposit.bonus_amount:.2f}")
         deposit.status = TransactionStatus.CANCELLED
     else:
         print(f"[WEBHOOK] Status não reconhecido ou ainda pendente - Status: {status_upper}")
@@ -1270,22 +1331,30 @@ async def webhook_pix_cashin(request: Request, db: Session = Depends(get_db)):
         if status_upper in ["PAID", "PAID_OUT", "CONFIRMED", "APPROVED", "SUCCESS"]:
             if deposit.status != TransactionStatus.APPROVED:
                 deposit.status = TransactionStatus.APPROVED
-                # Adicionar saldo ao usuário (valor do depósito + bônus do cupom)
+                # Adicionar saldo ao usuário separando real e bônus (mesma lógica do webhook principal)
                 user = db.query(User).filter(User.id == deposit.user_id).first()
                 if user:
-                    total_to_credit = deposit.amount + deposit.bonus_amount
-                    user.balance += total_to_credit
-                    
                     # Extrair informações do metadata
                     metadata = json.loads(deposit.metadata_json) if deposit.metadata_json else {}
                     promotion_id = metadata.get("promotion_id")
                     promotion_bonus = metadata.get("promotion_bonus", 0)
                     coupon_bonus = metadata.get("coupon_bonus", 0)
                     
-                    # Registrar uso do cupom se houver
-                    if deposit.coupon_code and coupon_bonus > 0:
+                    # Valor real depositado (sempre sacável)
+                    real_amount = deposit.amount
+                    user.balance += real_amount
+                    
+                    # Verificar se os bônus são sacáveis
+                    withdrawable_bonus = 0.0
+                    non_withdrawable_bonus = 0.0
+                    
+                    if coupon_bonus > 0 and deposit.coupon_code:
                         coupon = db.query(Coupon).filter(Coupon.code == deposit.coupon_code).first()
                         if coupon:
+                            if coupon.is_withdrawable:
+                                withdrawable_bonus += coupon_bonus
+                            else:
+                                non_withdrawable_bonus += coupon_bonus
                             coupon.uses += 1
                             coupon_use = CouponUse(
                                 coupon_id=coupon.id,
@@ -1295,10 +1364,13 @@ async def webhook_pix_cashin(request: Request, db: Session = Depends(get_db)):
                             )
                             db.add(coupon_use)
                     
-                    # Registrar uso da promoção se houver
-                    if promotion_id and promotion_bonus > 0:
+                    if promotion_bonus > 0 and promotion_id:
                         promotion = db.query(Promotion).filter(Promotion.id == promotion_id).first()
                         if promotion:
+                            if promotion.is_withdrawable:
+                                withdrawable_bonus += promotion_bonus
+                            else:
+                                non_withdrawable_bonus += promotion_bonus
                             promotion_use = PromotionUse(
                                 promotion_id=promotion.id,
                                 user_id=user.id,
@@ -1306,24 +1378,40 @@ async def webhook_pix_cashin(request: Request, db: Session = Depends(get_db)):
                                 bonus_amount=promotion_bonus
                             )
                             db.add(promotion_use)
+                    
+                    # Adicionar bônus sacável ao saldo real
+                    user.balance += withdrawable_bonus
+                    
+                    # Adicionar bônus não sacável ao saldo de bônus
+                    user.bonus_balance += non_withdrawable_bonus
         elif status_upper in ["CANCELLED", "CANCELED", "REJECTED", "FAILED", "CHARGEBACK"]:
             if deposit.status == TransactionStatus.APPROVED:
-                # Reverter saldo se já foi aprovado (depósito + bônus)
+                # Reverter saldo se já foi aprovado (mesma lógica do webhook principal)
                 user = db.query(User).filter(User.id == deposit.user_id).first()
                 if user:
-                    total_to_revert = deposit.amount + deposit.bonus_amount
-                    if user.balance >= total_to_revert:
-                        user.balance -= total_to_revert
+                    # Extrair informações do metadata
+                    metadata = json.loads(deposit.metadata_json) if deposit.metadata_json else {}
+                    promotion_id = metadata.get("promotion_id")
+                    promotion_bonus = metadata.get("promotion_bonus", 0)
+                    coupon_bonus = metadata.get("coupon_bonus", 0)
+                    
+                    # Reverter valor real depositado
+                    real_amount = deposit.amount
+                    if user.balance >= real_amount:
+                        user.balance -= real_amount
                         
-                        # Extrair informações do metadata
-                        metadata = json.loads(deposit.metadata_json) if deposit.metadata_json else {}
-                        promotion_id = metadata.get("promotion_id")
-                        
-                        # Reverter uso do cupom se houver
-                        if deposit.coupon_code:
+                        # Reverter bônus sacável e não sacável separadamente
+                        if coupon_bonus > 0 and deposit.coupon_code:
                             coupon = db.query(Coupon).filter(Coupon.code == deposit.coupon_code).first()
-                            if coupon and coupon.uses > 0:
-                                coupon.uses -= 1
+                            if coupon:
+                                if coupon.is_withdrawable:
+                                    if user.balance >= coupon_bonus:
+                                        user.balance -= coupon_bonus
+                                else:
+                                    if user.bonus_balance >= coupon_bonus:
+                                        user.bonus_balance -= coupon_bonus
+                                if coupon.uses > 0:
+                                    coupon.uses -= 1
                             # Remover registro de uso
                             coupon_use = db.query(CouponUse).filter(
                                 CouponUse.deposit_id == deposit.id
@@ -1332,7 +1420,15 @@ async def webhook_pix_cashin(request: Request, db: Session = Depends(get_db)):
                                 db.delete(coupon_use)
                         
                         # Reverter uso da promoção se houver
-                        if promotion_id:
+                        if promotion_bonus > 0 and promotion_id:
+                            promotion = db.query(Promotion).filter(Promotion.id == promotion_id).first()
+                            if promotion:
+                                if promotion.is_withdrawable:
+                                    if user.balance >= promotion_bonus:
+                                        user.balance -= promotion_bonus
+                                else:
+                                    if user.bonus_balance >= promotion_bonus:
+                                        user.bonus_balance -= promotion_bonus
                             promotion_use = db.query(PromotionUse).filter(
                                 PromotionUse.deposit_id == deposit.id
                             ).first()

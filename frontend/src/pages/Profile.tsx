@@ -98,10 +98,15 @@ export default function Profile() {
                 <Wallet className="text-[#d4af37]" size={24} />
               </div>
               <div>
-                <p className="text-gray-300 text-sm">Saldo Disponível</p>
+                <p className="text-gray-300 text-sm">Saldo Disponível (Sacável)</p>
                 <p className="text-3xl font-bold text-white">
                   R$ {user.balance.toFixed(2).replace('.', ',')}
                 </p>
+                {user.bonus_balance > 0 && (
+                  <p className="text-gray-400 text-sm mt-1">
+                    Bônus não sacável: R$ {user.bonus_balance.toFixed(2).replace('.', ',')}
+                  </p>
+                )}
               </div>
             </div>
           </div>

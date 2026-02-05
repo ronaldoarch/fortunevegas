@@ -3198,6 +3198,7 @@ function PromotionsTab({ token }: { token: string }) {
     min_deposit_amount: '',
     max_bonus_amount: '',
     is_first_deposit_only: false,
+    is_withdrawable: false,
     start_date: '',
     end_date: '',
     is_active: true
@@ -3236,6 +3237,7 @@ function PromotionsTab({ token }: { token: string }) {
         bonus_type: form.bonus_type,
         min_deposit_amount: form.min_deposit_amount ? parseFloat(form.min_deposit_amount) : 0.0,
         is_first_deposit_only: form.is_first_deposit_only,
+        is_withdrawable: form.is_withdrawable,
         is_active: form.is_active,
         start_date: new Date(form.start_date).toISOString(),
         end_date: new Date(form.end_date).toISOString()
@@ -3442,6 +3444,15 @@ function PromotionsTab({ token }: { token: string }) {
                 className="w-4 h-4"
               />
               <label className="text-sm text-gray-300">Aplicar apenas no primeiro depósito</label>
+            </div>
+            <div className="md:col-span-2 flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={form.is_withdrawable}
+                onChange={e => setForm({...form, is_withdrawable: e.target.checked})}
+                className="w-4 h-4"
+              />
+              <label className="text-sm text-gray-300">Bônus sacável (pode ser retirado)</label>
             </div>
             <div className="md:col-span-2 flex items-center gap-2">
               <input
@@ -4005,6 +4016,7 @@ function CouponsTab({ token }: { token: string }) {
     valid_until: '',
     min_deposit_amount: '',
     max_bonus_amount: '',
+    is_withdrawable: false,
     is_active: true
   });
 
@@ -4040,6 +4052,7 @@ function CouponsTab({ token }: { token: string }) {
         valid_from: new Date(form.valid_from).toISOString(),
         valid_until: new Date(form.valid_until).toISOString(),
         min_deposit_amount: form.min_deposit_amount ? parseFloat(form.min_deposit_amount) : 0.0,
+        is_withdrawable: form.is_withdrawable,
         is_active: form.is_active
       };
       
@@ -4076,6 +4089,7 @@ function CouponsTab({ token }: { token: string }) {
         valid_until: '',
         min_deposit_amount: '',
         max_bonus_amount: '',
+        is_withdrawable: false,
         is_active: true
       });
     } catch (err: any) {
@@ -4198,6 +4212,15 @@ function CouponsTab({ token }: { token: string }) {
                 placeholder="Deixe vazio para sem limite"
               />
               <p className="text-xs text-gray-500 mt-1">Valor máximo do bônus (apenas para cupons percentuais)</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={form.is_withdrawable}
+                onChange={e => setForm({...form, is_withdrawable: e.target.checked})}
+                className="w-4 h-4"
+              />
+              <label className="text-sm text-gray-300">Bônus sacável (pode ser retirado)</label>
             </div>
             <div className="flex items-center gap-2">
               <input
