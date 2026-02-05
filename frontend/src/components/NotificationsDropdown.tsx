@@ -13,6 +13,7 @@ interface Notification {
   is_read: boolean;
   link?: string;
   created_at: string;
+  coupon_code?: string; // Código do cupom se for uma notificação de cupom
 }
 
 interface NotificationsDropdownProps {
@@ -223,6 +224,11 @@ export default function NotificationsDropdown({ token }: NotificationsDropdownPr
                         <p className="text-xs text-gray-400 mt-1 line-clamp-2">
                           {notification.message}
                         </p>
+                        {notification.coupon_code && (
+                          <div className="mt-2 px-2 py-1 bg-[#d4af37]/20 border border-[#d4af37]/50 rounded text-xs">
+                            <span className="text-[#d4af37] font-mono font-bold">{notification.coupon_code}</span>
+                          </div>
+                        )}
                         <p className="text-xs text-gray-500 mt-2">
                           {new Date(notification.created_at).toLocaleDateString('pt-BR', {
                             day: '2-digit',
