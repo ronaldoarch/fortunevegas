@@ -2544,6 +2544,20 @@ async def get_active_theme(
     return theme
 
 
+@public_router.get("/themes/active", response_model=ThemeResponse)
+async def get_active_theme_public(
+    db: Session = Depends(get_db)
+):
+    """Obter tema ativo (público, sem autenticação)"""
+    theme = db.query(Theme).filter(Theme.is_active == True, Theme.is_default == True).first()
+    if not theme:
+        # Retornar tema padrão se nenhum estiver marcado como padrão
+        theme = db.query(Theme).filter(Theme.is_active == True).first()
+    if not theme:
+        raise HTTPException(status_code=404, detail="Nenhum tema ativo encontrado")
+    return theme
+
+
 @router.post("/themes", response_model=ThemeResponse, status_code=status.HTTP_201_CREATED)
 async def create_theme(
     theme_data: ThemeCreate,
