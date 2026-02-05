@@ -751,6 +751,9 @@ async def public_games(
         if section == "featured":
             public_games = [g for g in public_games if g["is_featured"]]
         
+        # Limitar a 15 jogos por provedor
+        public_games = public_games[:15]
+        
         return {
             "providers": providers,
             "provider_code": chosen_provider,
@@ -811,6 +814,9 @@ async def public_games(
             # Filtrar destaques se solicitado
             if section == "featured":
                 provider_games = [g for g in provider_games if g.get("is_featured", False)]
+            
+            # Limitar a 15 jogos por provedor
+            provider_games = provider_games[:15]
             
             if provider_games:
                 games_by_provider[config.provider_code] = {
@@ -884,9 +890,9 @@ async def public_games(
             
             provider_games.sort(key=lambda x: x["position"])
             
-            # Limitar quantidade de jogos conforme configuração
-            if pl.max_games > 0:
-                provider_games = provider_games[:pl.max_games]
+            # Limitar quantidade de jogos conforme configuração (máximo 15)
+            max_games = min(pl.max_games, 15) if pl.max_games > 0 else 15
+            provider_games = provider_games[:max_games]
             
             # Filtrar destaques se solicitado
             if section == "featured":
@@ -951,6 +957,9 @@ async def public_games(
         public_games.sort(key=lambda x: x["position"])
         if section == "featured":
             public_games = [g for g in public_games if g["is_featured"]]
+        
+        # Limitar a 15 jogos por provedor
+        public_games = public_games[:15]
         
         return {
             "providers": providers,

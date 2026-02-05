@@ -11,18 +11,11 @@ interface SidebarProps {
 export default function Sidebar({ isOpen, onClose, filters, onFiltersChange, providers = [] }: SidebarProps) {
   const popularGames = [
     'Fortune Tiger',
+    'Fortune Mouse',
+    'Fortune Ox',
+    'Mines',
     'Aviator',
-    'Fortune Snake',
-    'Mine',
-    'Fortune Rabbit',
-    'Sugar Rush 1000',
-    'Roleta Brasileira',
-    'Bac Bo',
-    'Football Studio',
-    'Blackjack ao vivo',
   ];
-
-  const liveGames = ['Jogo Ao Vivo', 'E-Sport'];
 
   return (
     <>
@@ -135,27 +128,6 @@ export default function Sidebar({ isOpen, onClose, filters, onFiltersChange, pro
                   <li key={game}>
                     <a
                       href={`/jogo/${game.toLowerCase().replace(/\s+/g, '-')}`}
-                      className="block px-1 py-2 rounded-md text-xs hover:bg-[#0d5d4b] transition-all duration-200 text-gray-100 hover:text-white"
-                    >
-                      {game}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </nav>
-
-          {/* Jogos Ao Vivo */}
-          <nav className="border-b border-[#0d5d4b]">
-            <div className="flex items-center justify-between px-4 py-3 bg-[#0a4d3e]">
-              <h3 className="text-sm font-bold text-[#d4af37] uppercase tracking-wide">Ao Vivo</h3>
-            </div>
-            <div className="px-4 pb-3">
-              <ul className="space-y-1">
-                {liveGames.map((game) => (
-                  <li key={game}>
-                    <a
-                      href={`/${game.toLowerCase().replace(/\s+/g, '-')}`}
                       className="block px-1 py-2 rounded-md text-xs hover:bg-[#0d5d4b] transition-all duration-200 text-gray-100 hover:text-white"
                     >
                       {game}
