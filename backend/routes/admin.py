@@ -918,13 +918,13 @@ async def launch_game(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Launch a game - requires user authentication AND positive balance
+    """Launch a game - Modo Seamless
     
-    Follows IGameWin API documentation:
-    - Uses user_code (username) to launch game
-    - Returns launch_url from API response
-    - If provider_code is not provided, searches for the game in the game list to find its provider
-    - Requires user to have balance > 0
+    No modo Seamless:
+    - Não transfere saldo para IGameWin
+    - O saldo é gerenciado localmente via API /gold_api
+    - Apenas gera URL de lançamento do jogo
+    - Requer que o usuário tenha saldo > 0
     """
     # Verificar se usuário tem saldo
     if not current_user.balance or current_user.balance <= 0:
@@ -936,6 +936,12 @@ async def launch_game(
     api = get_igamewin_api(db)
     if not api:
         raise HTTPException(status_code=400, detail="Nenhum agente IGameWin ativo configurado")
+    
+    # Criar usuário no IGameWin se não existir (necessário para seamless)
+    user_create_result = await api.create_user(user_code=current_user.username, is_demo=False)
+    if not user_create_result:
+        print(f"[LAUNCH] Aviso: Não foi possível criar/verificar usuário no IGameWin: {api.last_error}")
+        # Continuar mesmo assim, pode ser que o usuário já exista
     
     # Se provider_code não foi fornecido, buscar na lista de jogos
     if not provider_code:
@@ -981,6 +987,7 @@ async def launch_game(
         )
     
     # Gerar URL de lançamento do jogo usando user_code (username)
+    # No modo seamless, não transferimos saldo - o saldo é gerenciado via /gold_api
     launch_url = await api.launch_game(
         user_code=current_user.username,
         game_code=game_code,
@@ -1000,7 +1007,8 @@ async def launch_game(
         "game_code": game_code,
         "provider_code": provider_code,
         "username": current_user.username,
-        "user_code": current_user.username
+        "user_code": current_user.username,
+        "mode": "seamless"  # Indica que está usando modo seamless
     }
 
 
@@ -1011,17 +1019,20 @@ async def seamless_api(
     db: Session = Depends(get_db)
 ):
     """
-    API Seamless para IGameWin - requerida para modo seamless
+    API Seamless para IGameWin - Modo Seamless Completo
     Endpoints suportados:
     - user_balance: Retornar saldo do usuário
     - transaction: Processar transação (debit/credit/debit_credit)
-    """
-    from fastapi import Request
-    import hashlib
     
+    Tipos de jogos suportados:
+    - slot: Slots
+    - live: Jogos ao vivo (casino, baccarat, etc)
+    - sport: Apostas esportivas
+    - lottery: Loterias
+    """
     method = request.get("method")
     agent_code = request.get("agent_code")
-    agent_secret = request.get("agent_secret")  # IGameWin usa agent_secret aqui
+    agent_secret = request.get("agent_secret")
     user_code = request.get("user_code")
     
     if not method or not agent_code or not agent_secret or not user_code:
@@ -1036,10 +1047,8 @@ async def seamless_api(
     if not agent:
         return {"status": 0, "msg": "INVALID_AGENT"}
     
-    # Verificar agent_secret (na doc IGameWin, pode ser o agent_key ou outro campo)
-    # Por padrão, vamos usar agent_key como secret
+    # Verificar agent_secret
     if agent_secret != agent.agent_key:
-        # Se tiver credentials JSON, pode ter agent_secret lá
         if agent.credentials:
             try:
                 creds = json.loads(agent.credentials)
@@ -1060,104 +1069,320 @@ async def seamless_api(
     if method == "user_balance":
         return {
             "status": 1,
-            "user_balance": user.balance
+            "user_balance": float(user.balance)
         }
     
     # Método: transaction
     if method == "transaction":
-        agent_balance = request.get("agent_balance", 0)  # Saldo do agente (IGameWin envia)
-        user_balance_sent = request.get("user_balance", 0)  # Saldo que IGameWin acha que o user tem
+        game_type = request.get("game_type", "slot")
         
-        # Obter dados da transação baseado no tipo de jogo
-        game_type = request.get("game_type")
-        
+        # Processar diferentes tipos de jogos
         if game_type == "slot":
-            slot_data = request.get("slot", {})
-            provider_code = slot_data.get("provider_code")
-            game_code = slot_data.get("game_code")
-            txn_type = slot_data.get("txn_type")  # debit, credit, debit_credit
-            bet_money = slot_data.get("bet_money", 0)
-            win_money = slot_data.get("win_money", 0)
-            txn_id = slot_data.get("txn_id")
-            
-            if not txn_id:
-                return {"status": 0, "msg": "INVALID_PARAMETER"}
-            
-            # Verificar se transação já foi processada
-            existing_bet = db.query(Bet).filter(Bet.transaction_id == txn_id).first()
-            if existing_bet:
-                # Retornar saldo atualizado
-                return {
-                    "status": 1,
-                    "user_balance": user.balance
-                }
-            
-            # Processar transação
-            try:
-                if txn_type == "debit":
-                    # Apenas aposta (debit)
-                    if user.balance < bet_money:
-                        return {"status": 0, "user_balance": user.balance, "msg": "INSUFFICIENT_USER_FUNDS"}
-                    
-                    user.balance -= bet_money
-                    win_amount = 0
-                    
-                elif txn_type == "credit":
-                    # Apenas ganho (credit)
-                    user.balance += win_money
-                    bet_money = 0
-                    win_amount = win_money
-                    
-                elif txn_type == "debit_credit":
-                    # Aposta e ganho (debit_credit)
-                    if user.balance < bet_money:
-                        return {"status": 0, "user_balance": user.balance, "msg": "INSUFFICIENT_USER_FUNDS"}
-                    
-                    user.balance -= bet_money
-                    user.balance += win_money
-                    win_amount = win_money
-                    
-                else:
-                    return {"status": 0, "msg": "INVALID_TXN_TYPE"}
-                
-                # Criar registro de aposta
-                bet = Bet(
-                    user_id=user.id,
-                    game_id=game_code,
-                    game_name=game_code,  # Pode ser melhorado com nome real
-                    provider=provider_code or "IGameWin",
-                    amount=bet_money,
-                    win_amount=win_amount,
-                    status=BetStatus.WON if win_amount > 0 else BetStatus.LOST,
-                    transaction_id=txn_id,
-                    external_id=txn_id,
-                    metadata_json=json.dumps(slot_data)
-                )
-                db.add(bet)
-                
-                # Sincronizar com IGameWin se necessário
-                api = get_igamewin_api(db)
-                if api:
-                    # Transferir saldo para IGameWin se necessário (seamless mode)
-                    # A lógica aqui depende de como você quer gerenciar o saldo
-                    # Por enquanto, apenas atualizamos nosso banco
-                    pass
-                
-                db.commit()
-                db.refresh(user)
-                
-                return {
-                    "status": 1,
-                    "user_balance": user.balance
-                }
-                
-            except Exception as e:
-                db.rollback()
-                return {"status": 0, "msg": f"INTERNAL_ERROR: {str(e)}"}
-        
-        return {"status": 0, "msg": "UNSUPPORTED_GAME_TYPE"}
+            return await _process_slot_transaction(request, user, db)
+        elif game_type == "live":
+            return await _process_live_transaction(request, user, db)
+        elif game_type == "sport":
+            return await _process_sport_transaction(request, user, db)
+        elif game_type == "lottery":
+            return await _process_lottery_transaction(request, user, db)
+        else:
+            return {"status": 0, "msg": f"UNSUPPORTED_GAME_TYPE: {game_type}"}
     
     return {"status": 0, "msg": "INVALID_METHOD"}
+
+
+async def _process_slot_transaction(request: dict, user: User, db: Session):
+    """Processar transação de slot"""
+    slot_data = request.get("slot", {})
+    provider_code = slot_data.get("provider_code")
+    game_code = slot_data.get("game_code")
+    txn_type = slot_data.get("txn_type")  # debit, credit, debit_credit
+    bet_money = float(slot_data.get("bet_money", 0))
+    win_money = float(slot_data.get("win_money", 0))
+    txn_id = slot_data.get("txn_id")
+    
+    if not txn_id:
+        return {"status": 0, "msg": "INVALID_PARAMETER"}
+    
+    # Verificar se transação já foi processada (idempotência)
+    existing_bet = db.query(Bet).filter(Bet.transaction_id == txn_id).first()
+    if existing_bet:
+        return {
+            "status": 1,
+            "user_balance": float(user.balance)
+        }
+    
+    try:
+        bet_money_actual = bet_money
+        win_amount = 0
+        
+        if txn_type == "debit":
+            # Apenas aposta (debit)
+            if user.balance < bet_money:
+                return {"status": 0, "user_balance": float(user.balance), "msg": "INSUFFICIENT_USER_FUNDS"}
+            user.balance -= bet_money
+            win_amount = 0
+            
+        elif txn_type == "credit":
+            # Apenas ganho (credit)
+            user.balance += win_money
+            bet_money_actual = 0
+            win_amount = win_money
+            
+        elif txn_type == "debit_credit":
+            # Aposta e ganho (debit_credit)
+            if user.balance < bet_money:
+                return {"status": 0, "user_balance": float(user.balance), "msg": "INSUFFICIENT_USER_FUNDS"}
+            user.balance -= bet_money
+            user.balance += win_money
+            win_amount = win_money
+            
+        else:
+            return {"status": 0, "msg": "INVALID_TXN_TYPE"}
+        
+        # Criar registro de aposta
+        bet = Bet(
+            user_id=user.id,
+            game_id=game_code,
+            game_name=game_code,
+            provider=provider_code or "IGameWin",
+            amount=bet_money_actual,
+            win_amount=win_amount,
+            status=BetStatus.WON if win_amount > 0 else BetStatus.LOST,
+            transaction_id=txn_id,
+            external_id=txn_id,
+            metadata_json=json.dumps(slot_data)
+        )
+        db.add(bet)
+        db.commit()
+        db.refresh(user)
+        
+        return {
+            "status": 1,
+            "user_balance": float(user.balance)
+        }
+        
+    except Exception as e:
+        db.rollback()
+        print(f"[SEAMLESS] Erro ao processar transação slot: {str(e)}")
+        return {"status": 0, "msg": f"INTERNAL_ERROR: {str(e)}"}
+
+
+async def _process_live_transaction(request: dict, user: User, db: Session):
+    """Processar transação de jogo ao vivo (casino, baccarat, etc)"""
+    live_data = request.get("live", {})
+    provider_code = live_data.get("provider_code")
+    game_code = live_data.get("game_code")
+    txn_type = live_data.get("txn_type")
+    bet_money = float(live_data.get("bet_money", 0))
+    win_money = float(live_data.get("win_money", 0))
+    txn_id = live_data.get("txn_id")
+    
+    if not txn_id:
+        return {"status": 0, "msg": "INVALID_PARAMETER"}
+    
+    # Verificar se transação já foi processada
+    existing_bet = db.query(Bet).filter(Bet.transaction_id == txn_id).first()
+    if existing_bet:
+        return {
+            "status": 1,
+            "user_balance": float(user.balance)
+        }
+    
+    try:
+        bet_money_actual = bet_money
+        win_amount = 0
+        
+        if txn_type == "debit":
+            if user.balance < bet_money:
+                return {"status": 0, "user_balance": float(user.balance), "msg": "INSUFFICIENT_USER_FUNDS"}
+            user.balance -= bet_money
+            win_amount = 0
+            
+        elif txn_type == "credit":
+            user.balance += win_money
+            bet_money_actual = 0
+            win_amount = win_money
+            
+        elif txn_type == "debit_credit":
+            if user.balance < bet_money:
+                return {"status": 0, "user_balance": float(user.balance), "msg": "INSUFFICIENT_USER_FUNDS"}
+            user.balance -= bet_money
+            user.balance += win_money
+            win_amount = win_money
+            
+        else:
+            return {"status": 0, "msg": "INVALID_TXN_TYPE"}
+        
+        bet = Bet(
+            user_id=user.id,
+            game_id=game_code,
+            game_name=game_code,
+            provider=provider_code or "IGameWin",
+            amount=bet_money_actual,
+            win_amount=win_amount,
+            status=BetStatus.WON if win_amount > 0 else BetStatus.LOST,
+            transaction_id=txn_id,
+            external_id=txn_id,
+            metadata_json=json.dumps(live_data)
+        )
+        db.add(bet)
+        db.commit()
+        db.refresh(user)
+        
+        return {
+            "status": 1,
+            "user_balance": float(user.balance)
+        }
+        
+    except Exception as e:
+        db.rollback()
+        print(f"[SEAMLESS] Erro ao processar transação live: {str(e)}")
+        return {"status": 0, "msg": f"INTERNAL_ERROR: {str(e)}"}
+
+
+async def _process_sport_transaction(request: dict, user: User, db: Session):
+    """Processar transação de aposta esportiva"""
+    sport_data = request.get("sport", {})
+    provider_code = sport_data.get("provider_code")
+    game_code = sport_data.get("game_code") or sport_data.get("match_id")
+    txn_type = sport_data.get("txn_type")
+    bet_money = float(sport_data.get("bet_money", 0))
+    win_money = float(sport_data.get("win_money", 0))
+    txn_id = sport_data.get("txn_id")
+    
+    if not txn_id:
+        return {"status": 0, "msg": "INVALID_PARAMETER"}
+    
+    existing_bet = db.query(Bet).filter(Bet.transaction_id == txn_id).first()
+    if existing_bet:
+        return {
+            "status": 1,
+            "user_balance": float(user.balance)
+        }
+    
+    try:
+        bet_money_actual = bet_money
+        win_amount = 0
+        
+        if txn_type == "debit":
+            if user.balance < bet_money:
+                return {"status": 0, "user_balance": float(user.balance), "msg": "INSUFFICIENT_USER_FUNDS"}
+            user.balance -= bet_money
+            win_amount = 0
+            
+        elif txn_type == "credit":
+            user.balance += win_money
+            bet_money_actual = 0
+            win_amount = win_money
+            
+        elif txn_type == "debit_credit":
+            if user.balance < bet_money:
+                return {"status": 0, "user_balance": float(user.balance), "msg": "INSUFFICIENT_USER_FUNDS"}
+            user.balance -= bet_money
+            user.balance += win_money
+            win_amount = win_money
+            
+        else:
+            return {"status": 0, "msg": "INVALID_TXN_TYPE"}
+        
+        bet = Bet(
+            user_id=user.id,
+            game_id=game_code,
+            game_name=game_code,
+            provider=provider_code or "IGameWin",
+            amount=bet_money_actual,
+            win_amount=win_amount,
+            status=BetStatus.WON if win_amount > 0 else BetStatus.LOST,
+            transaction_id=txn_id,
+            external_id=txn_id,
+            metadata_json=json.dumps(sport_data)
+        )
+        db.add(bet)
+        db.commit()
+        db.refresh(user)
+        
+        return {
+            "status": 1,
+            "user_balance": float(user.balance)
+        }
+        
+    except Exception as e:
+        db.rollback()
+        print(f"[SEAMLESS] Erro ao processar transação sport: {str(e)}")
+        return {"status": 0, "msg": f"INTERNAL_ERROR: {str(e)}"}
+
+
+async def _process_lottery_transaction(request: dict, user: User, db: Session):
+    """Processar transação de loteria"""
+    lottery_data = request.get("lottery", {})
+    provider_code = lottery_data.get("provider_code")
+    game_code = lottery_data.get("game_code")
+    txn_type = lottery_data.get("txn_type")
+    bet_money = float(lottery_data.get("bet_money", 0))
+    win_money = float(lottery_data.get("win_money", 0))
+    txn_id = lottery_data.get("txn_id")
+    
+    if not txn_id:
+        return {"status": 0, "msg": "INVALID_PARAMETER"}
+    
+    existing_bet = db.query(Bet).filter(Bet.transaction_id == txn_id).first()
+    if existing_bet:
+        return {
+            "status": 1,
+            "user_balance": float(user.balance)
+        }
+    
+    try:
+        bet_money_actual = bet_money
+        win_amount = 0
+        
+        if txn_type == "debit":
+            if user.balance < bet_money:
+                return {"status": 0, "user_balance": float(user.balance), "msg": "INSUFFICIENT_USER_FUNDS"}
+            user.balance -= bet_money
+            win_amount = 0
+            
+        elif txn_type == "credit":
+            user.balance += win_money
+            bet_money_actual = 0
+            win_amount = win_money
+            
+        elif txn_type == "debit_credit":
+            if user.balance < bet_money:
+                return {"status": 0, "user_balance": float(user.balance), "msg": "INSUFFICIENT_USER_FUNDS"}
+            user.balance -= bet_money
+            user.balance += win_money
+            win_amount = win_money
+            
+        else:
+            return {"status": 0, "msg": "INVALID_TXN_TYPE"}
+        
+        bet = Bet(
+            user_id=user.id,
+            game_id=game_code,
+            game_name=game_code,
+            provider=provider_code or "IGameWin",
+            amount=bet_money_actual,
+            win_amount=win_amount,
+            status=BetStatus.WON if win_amount > 0 else BetStatus.LOST,
+            transaction_id=txn_id,
+            external_id=txn_id,
+            metadata_json=json.dumps(lottery_data)
+        )
+        db.add(bet)
+        db.commit()
+        db.refresh(user)
+        
+        return {
+            "status": 1,
+            "user_balance": float(user.balance)
+        }
+        
+    except Exception as e:
+        db.rollback()
+        print(f"[SEAMLESS] Erro ao processar transação lottery: {str(e)}")
+        return {"status": 0, "msg": f"INTERNAL_ERROR: {str(e)}"}
 
 
 # ========== STATS ==========

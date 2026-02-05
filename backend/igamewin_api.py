@@ -91,45 +91,12 @@ class IGameWinAPI:
         
         return None
     
-    async def transfer_in(self, user_code: str, amount: float) -> Optional[Dict[str, Any]]:
-        """Transfer money into user account (deposit) - follows IGameWin API documentation"""
-        payload = {
-            "method": "user_deposit",
-            "agent_code": self.agent_code,
-            "agent_token": self.agent_key,
-            "user_code": user_code,
-            "amount": amount
-        }
-        
-        data = await self._post(payload)
-        if not data:
-            return None
-        
-        # Verificar se status é 1 (sucesso)
-        if data.get("status") == 1:
-            return data
-        
-        return None
+    # Métodos de transferência removidos - sistema agora usa apenas modo Seamless
+    # No modo Seamless, o saldo é gerenciado localmente via API /gold_api
+    # e não há necessidade de transferir saldo para/do IGameWin
     
-    async def transfer_out(self, user_code: str, amount: float) -> Optional[Dict[str, Any]]:
-        """Transfer money out of user account (withdraw) - follows IGameWin API documentation"""
-        payload = {
-            "method": "user_withdraw",
-            "agent_code": self.agent_code,
-            "agent_token": self.agent_key,
-            "user_code": user_code,
-            "amount": amount
-        }
-        
-        data = await self._post(payload)
-        if not data:
-            return None
-        
-        # Verificar se status é 1 (sucesso)
-        if data.get("status") == 1:
-            return data
-        
-        return None
+    # async def transfer_in(...) - REMOVIDO (modo transfer desabilitado)
+    # async def transfer_out(...) - REMOVIDO (modo transfer desabilitado)
     
     async def _post(self, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         self.last_error = None
