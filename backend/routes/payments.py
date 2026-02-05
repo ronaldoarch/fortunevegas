@@ -425,6 +425,7 @@ async def create_pix_withdrawal(
         # Se não começar com 55 (código do Brasil), adicionar
         if not pix_key_clean.startswith('55'):
             pix_key_clean = '55' + pix_key_clean
+        print(f"[WITHDRAWAL] Chave PIX (telefone) formatada: {pix_key_clean}")
     
     # Buscar gateway PIX ativo
     gateway = get_active_pix_gateway(db)
@@ -438,7 +439,16 @@ async def create_pix_withdrawal(
     # Realizar transferência PIX
     # A Gatebox requer name (nome do recebedor) - usar nome do usuário se disponível
     # Usar username como fallback se não houver nome completo
+    # IMPORTANTE: Para chave PIX de telefone, o nome deve corresponder ao titular da conta
     recipient_name = user.username or user.email.split('@')[0] if user.email else "Usuário"
+    
+    # Log dos dados que serão enviados
+    print(f"[WITHDRAWAL] Dados do saque:")
+    print(f"  - External ID: {external_id}")
+    print(f"  - Chave PIX: {pix_key_clean} (tipo: {type_key})")
+    print(f"  - Nome: {recipient_name}")
+    print(f"  - Valor: R$ {amount:.2f}")
+    print(f"  - Documento (opcional): {document_validation or 'Não informado'}")
     
     try:
         transfer_response = await gatebox.withdraw_pix(
@@ -464,9 +474,30 @@ async def create_pix_withdrawal(
     
     # Verificar se houve erro na resposta da Gatebox
     if transfer_response.get("error"):
-        error_detail = transfer_response.get("detail", "Erro ao processar saque")
+        error_detail = (
+            transfer_response.get("detail") or 
+            transfer_response.get("message") or 
+            transfer_response.get("errorMessage") or
+            "Erro ao processar saque"
+        )
         status_code = transfer_response.get("status_code", 400)
+        print(f"[WITHDRAWAL] ❌ Erro na resposta da Gatebox: {error_detail}")
         raise HTTPException(status_code=status_code, detail=error_detail)
+    
+    # Verificar se o status inicial indica problema
+    actual_response = transfer_response
+    if isinstance(transfer_response, dict):
+        if "data" in transfer_response and isinstance(transfer_response["data"], dict):
+            actual_response = transfer_response["data"]
+        elif "result" in transfer_response and isinstance(transfer_response["result"], dict):
+            actual_response = transfer_response["result"]
+    
+    # Verificar status inicial na resposta
+    initial_status = actual_response.get("status", "").upper()
+    if initial_status in ["FAILED", "REJECTED", "ERROR"]:
+        error_msg = actual_response.get("message") or actual_response.get("error") or "Saque rejeitado pela Gatebox"
+        print(f"[WITHDRAWAL] ⚠️ Status inicial indica falha: {initial_status} - {error_msg}")
+        # Não bloquear aqui, pois o webhook pode atualizar depois, mas logar para investigação
     
     # A Gatebox pode retornar dados em diferentes estruturas
     # Verificar se há um campo "data" ou similar que contenha a resposta real
@@ -838,9 +869,22 @@ async def _process_pix_cashout(data: dict, db: Session):
         transaction_data.get("end_to_end")
     )
     
+    # Extrair motivo da falha (se houver)
+    failure_reason = (
+        data.get("reason") or
+        data.get("message") or
+        data.get("error") or
+        data.get("errorMessage") or
+        data.get("failureReason") or
+        transaction_data.get("reason") or
+        transaction_data.get("message") or
+        transaction_data.get("error")
+    )
+    
     print(f"[WEBHOOK] External ID extraído: {external_id}")
     print(f"[WEBHOOK] Transaction ID extraído: {transaction_id}")
     print(f"[WEBHOOK] Status extraído: {status_transaction}")
+    print(f"[WEBHOOK] Motivo da falha (se houver): {failure_reason}")
     
     # Buscar saque pelo external_id
     withdrawal = None
@@ -884,7 +928,10 @@ async def _process_pix_cashout(data: dict, db: Session):
         print(f"[WEBHOOK] ✅ Saque aprovado - Status: {status_upper}")
         withdrawal.status = TransactionStatus.APPROVED
     elif status_upper in failed_statuses:
-        print(f"[WEBHOOK] ❌ Saque falhou - Status: {status_upper}, Revertendo saldo...")
+        print(f"[WEBHOOK] ❌ Saque falhou - Status: {status_upper}")
+        if failure_reason:
+            print(f"[WEBHOOK] Motivo da falha: {failure_reason}")
+        print(f"[WEBHOOK] Revertendo saldo...")
         # Reverter saldo quando o saque falha (o saldo foi bloqueado na criação)
         user = db.query(User).filter(User.id == withdrawal.user_id).first()
         if user:
@@ -902,6 +949,8 @@ async def _process_pix_cashout(data: dict, db: Session):
     metadata["webhook_data"] = data
     metadata["webhook_received_at"] = datetime.utcnow().isoformat()
     metadata["webhook_status"] = status_transaction
+    if failure_reason:
+        metadata["failure_reason"] = failure_reason
     withdrawal.metadata_json = json.dumps(metadata)
     
     try:
