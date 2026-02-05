@@ -496,8 +496,17 @@ async def get_igamewin_agents(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_admin_user)
 ):
-    agents = db.query(IGameWinAgent).all()
-    return agents
+    """Listar todos os agentes IGameWin"""
+    try:
+        agents = db.query(IGameWinAgent).all()
+        # Garantir que todos os agentes tenham RTP (caso campo não exista ainda no banco)
+        for agent in agents:
+            if not hasattr(agent, 'rtp') or agent.rtp is None:
+                agent.rtp = 96.0
+        return agents
+    except Exception as e:
+        print(f"[IGAMEWIN] Erro ao listar agentes: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro ao listar agentes: {str(e)}")
 
 
 @router.get("/igamewin-agents/{agent_id}", response_model=IGameWinAgentResponse)
@@ -540,25 +549,34 @@ async def update_igamewin_agent(
     if not agent:
         raise HTTPException(status_code=404, detail="IGameWin agent not found")
     
-    # Guardar RTP anterior para comparar
-    old_rtp = agent.rtp
+    # Guardar RTP anterior para comparar (com fallback caso campo não exista ainda)
+    try:
+        old_rtp = getattr(agent, 'rtp', 96.0)
+    except AttributeError:
+        old_rtp = 96.0
     
     update_data = agent_data.model_dump(exclude_unset=True)
     
     # Se RTP está sendo atualizado, sincronizar com IGameWin
-    if "rtp" in update_data and update_data["rtp"] != old_rtp:
+    if "rtp" in update_data:
         new_rtp = update_data["rtp"]
-        api = get_igamewin_api(db)
-        if api:
-            print(f"[IGAMEWIN] Atualizando RTP de {old_rtp}% para {new_rtp}% na IGameWin...")
-            rtp_result = await api.update_rtp(new_rtp)
-            if rtp_result:
-                print(f"[IGAMEWIN] ✅ RTP atualizado com sucesso na IGameWin: {rtp_result}")
+        # Só sincronizar se o valor realmente mudou
+        if new_rtp != old_rtp:
+            api = get_igamewin_api(db)
+            if api:
+                print(f"[IGAMEWIN] Atualizando RTP de {old_rtp}% para {new_rtp}% na IGameWin...")
+                try:
+                    rtp_result = await api.update_rtp(new_rtp)
+                    if rtp_result:
+                        print(f"[IGAMEWIN] ✅ RTP atualizado com sucesso na IGameWin: {rtp_result}")
+                    else:
+                        print(f"[IGAMEWIN] ⚠️ Aviso: Não foi possível atualizar RTP na IGameWin: {api.last_error}")
+                        # Continuar mesmo assim - o RTP será salvo localmente
+                except Exception as e:
+                    print(f"[IGAMEWIN] ⚠️ Erro ao tentar atualizar RTP na IGameWin: {str(e)}")
+                    # Continuar mesmo assim - o RTP será salvo localmente
             else:
-                print(f"[IGAMEWIN] ⚠️ Aviso: Não foi possível atualizar RTP na IGameWin: {api.last_error}")
-                # Continuar mesmo assim - o RTP será salvo localmente
-        else:
-            print(f"[IGAMEWIN] ⚠️ Aviso: Não foi possível obter instância da API IGameWin para atualizar RTP")
+                print(f"[IGAMEWIN] ⚠️ Aviso: Não foi possível obter instância da API IGameWin para atualizar RTP")
     
     # Atualizar campos no banco de dados
     for field, value in update_data.items():
@@ -633,33 +651,42 @@ async def list_igamewin_games(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_admin_user)
 ):
-    api = get_igamewin_api(db)
-    if not api:
-        raise HTTPException(status_code=400, detail="Nenhum agente IGameWin ativo configurado")
+    """Listar jogos e provedores do IGameWin"""
+    try:
+        api = get_igamewin_api(db)
+        if not api:
+            raise HTTPException(status_code=400, detail="Nenhum agente IGameWin ativo configurado")
 
-    providers = await api.get_providers()
-    if providers is None:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Não foi possível obter provedores da IGameWin ({api.last_error or 'erro desconhecido'})"
-        )
+        providers = await api.get_providers()
+        if providers is None:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Não foi possível obter provedores da IGameWin ({api.last_error or 'erro desconhecido'})"
+            )
 
-    chosen_provider = _choose_provider(providers, provider_code)
+        chosen_provider = _choose_provider(providers, provider_code)
 
-    games = await api.get_games(provider_code=chosen_provider)
-    if games is None:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Não foi possível obter jogos da IGameWin (verifique provider_code e credenciais do agente). {api.last_error or ''}".strip()
-        )
+        games = await api.get_games(provider_code=chosen_provider)
+        if games is None:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Não foi possível obter jogos da IGameWin (verifique provider_code e credenciais do agente). {api.last_error or ''}".strip()
+            )
 
-    games = _normalize_games(games, chosen_provider)
+        games = _normalize_games(games, chosen_provider)
 
-    return {
-        "providers": providers,
-        "provider_code": chosen_provider,
-        "games": games
-    }
+        return {
+            "providers": providers,
+            "provider_code": chosen_provider,
+            "games": games
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[IGAMEWIN] Erro ao listar jogos: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erro interno ao listar jogos: {str(e)}")
 
 
 @public_router.get("/games")
