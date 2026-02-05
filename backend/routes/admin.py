@@ -48,10 +48,14 @@ public_router = APIRouter(prefix="/api/public", tags=["public"])
 async def get_users(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
+    affiliate_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_admin_user)
 ):
-    users = db.query(User).offset(skip).limit(limit).all()
+    query = db.query(User)
+    if affiliate_id is not None:
+        query = query.filter(User.affiliate_id == affiliate_id)
+    users = query.offset(skip).limit(limit).all()
     return users
 
 

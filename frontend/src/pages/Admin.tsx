@@ -2429,11 +2429,18 @@ function AffiliatesTab({ token }: { token: string }) {
           const revshareEarned = (totalDeposits * revshareRate) / 100;
           const totalEarned = cpaEarned + revshareEarned;
           
+          // Buscar usuário vinculado ao afiliado (o próprio afiliado)
+          const affiliateUser = users.find((u: any) => u.affiliate_id === affiliate.id);
+          
+          // Extrair CPA do metadata
+          const metadata = affiliate.metadata_json ? JSON.parse(affiliate.metadata_json) : {};
+          const cpaFromMetadata = metadata.cpa || cpaRate;
+          
           return {
             ...affiliate,
-            user_id: subordinateUsers[0]?.id || null,
-            user_name: subordinateUsers[0]?.username || '-',
-            cpa: cpaRate,
+            user_id: affiliateUser?.id || subordinateUsers[0]?.id || null,
+            user_name: affiliateUser?.username || subordinateUsers[0]?.username || '-',
+            cpa: cpaFromMetadata,
             revshare: revshareRate,
             deposits_brought: totalDeposits,
             total_earned: totalEarned,
