@@ -1009,6 +1009,7 @@ function IGameWinTab({ token }: { token: string }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [form, setForm] = useState({ agent_code: '', agent_key: '', api_url: 'https://api.igamewin.com', credentials: '', is_active: true });
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [games, setGames] = useState<any[]>([]);
   const [providers, setProviders] = useState<any[]>([]);
   const [providerCode, setProviderCode] = useState('');
@@ -1071,34 +1072,49 @@ function IGameWinTab({ token }: { token: string }) {
     }
     finally { setLoadingBalance(false); }
   };
-  const create = async () => {
+  const resetForm = () => {
+    setForm({ agent_code: '', agent_key: '', api_url: 'https://api.igamewin.com', credentials: '', is_active: true });
+    setEditingId(null);
+  };
+
+  const loadForEdit = (agent: any) => {
+    setEditingId(agent.id);
+    setForm({
+      agent_code: agent.agent_code || '',
+      agent_key: agent.agent_key || '',
+      api_url: agent.api_url || 'https://api.igamewin.com',
+      credentials: agent.credentials || '',
+      is_active: agent.is_active !== undefined ? agent.is_active : true
+    });
+  };
+
+  const createOrUpdate = async () => {
     setLoading(true); setError('');
-    const body = JSON.stringify(form);
     try {
-      // Tenta criar; se já existir, faz update no primeiro agente
-      let res = await fetch(`${API_URL}/api/admin/igamewin-agents`, {
-        method: 'POST',
+      const url = editingId
+        ? `${API_URL}/api/admin/igamewin-agents/${editingId}`
+        : `${API_URL}/api/admin/igamewin-agents`;
+      const method = editingId ? 'PUT' : 'POST';
+      
+      const res = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body
+        body: JSON.stringify(form)
       });
-      if (!res.ok) {
-        // Se já existe, tenta update do primeiro agente
-        const existingId = items[0]?.id;
-        if (res.status === 400 && existingId) {
-          res = await fetch(`${API_URL}/api/admin/igamewin-agents/${existingId}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body
-          });
-        }
-      }
+      
       if (!res.ok) {
         const txt = await res.text();
-        throw new Error(`Falha ao salvar agente: ${txt || res.status}`);
+        throw new Error(`Falha ao ${editingId ? 'atualizar' : 'criar'} agente: ${txt || res.status}`);
       }
+      
       await fetchData();
       await fetchGames();
-    } catch (err:any) { setError(err.message); } finally { setLoading(false); }
+      resetForm();
+    } catch (err:any) { 
+      setError(err.message); 
+    } finally { 
+      setLoading(false); 
+    }
   };
 
   useEffect(() => { 
@@ -1176,27 +1192,117 @@ function IGameWinTab({ token }: { token: string }) {
         </div>
       )}
 
-      <div className="grid md:grid-cols-2 gap-3 bg-gray-800/60 p-4 rounded border border-gray-700">
-        <input className="bg-gray-700 rounded px-3 py-2 text-sm" placeholder="Agent Code" value={form.agent_code} onChange={e=>setForm({...form, agent_code:e.target.value})}/>
-        <input className="bg-gray-700 rounded px-3 py-2 text-sm" placeholder="Agent Key" value={form.agent_key} onChange={e=>setForm({...form, agent_key:e.target.value})}/>
-        <input className="bg-gray-700 rounded px-3 py-2 text-sm md:col-span-2" placeholder="API URL" value={form.api_url} onChange={e=>setForm({...form, api_url:e.target.value})}/>
-        <textarea className="bg-gray-700 rounded px-3 py-2 text-sm md:col-span-2" placeholder="Credenciais extras (JSON)" value={form.credentials} onChange={e=>setForm({...form, credentials:e.target.value})}/>
-        <div className="flex items-center gap-2">
-          <input type="checkbox" checked={form.is_active} onChange={e=>setForm({...form, is_active:e.target.checked})}/>
-          <span>Ativo</span>
+      <div className="bg-gray-800/60 p-4 rounded border border-gray-700">
+        <h3 className="text-lg font-semibold mb-4">{editingId ? 'Editar' : 'Cadastrar Novo'} Agente</h3>
+        <div className="grid md:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">Agent Code *</label>
+            <input 
+              className="bg-gray-700 rounded px-3 py-2 text-sm w-full" 
+              placeholder="Agent Code" 
+              value={form.agent_code} 
+              onChange={e=>setForm({...form, agent_code:e.target.value})}
+              disabled={!!editingId}
+            />
+            {editingId && <p className="text-xs text-gray-500 mt-1">Agent Code não pode ser alterado</p>}
+          </div>
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">Agent Key *</label>
+            <input 
+              type="password"
+              className="bg-gray-700 rounded px-3 py-2 text-sm w-full" 
+              placeholder="Agent Key" 
+              value={form.agent_key} 
+              onChange={e=>setForm({...form, agent_key:e.target.value})}
+            />
+          </div>
+          <div className="md:col-span-2">
+            <label className="block text-sm text-gray-400 mb-1">API URL *</label>
+            <input 
+              className="bg-gray-700 rounded px-3 py-2 text-sm w-full" 
+              placeholder="API URL" 
+              value={form.api_url} 
+              onChange={e=>setForm({...form, api_url:e.target.value})}
+            />
+            <p className="text-xs text-gray-500 mt-1">Exemplo: https://api.igamewin.com</p>
+          </div>
+          <div className="md:col-span-2">
+            <label className="block text-sm text-gray-400 mb-1">Credenciais extras (JSON)</label>
+            <textarea 
+              className="bg-gray-700 rounded px-3 py-2 text-sm w-full min-h-[100px]" 
+              placeholder='{"agent_secret": "seu_secret_aqui", "provider_code": "default_provider"}' 
+              value={form.credentials} 
+              onChange={e=>setForm({...form, credentials:e.target.value})}
+            />
+            <p className="text-xs text-gray-500 mt-1">JSON opcional com configurações extras (agent_secret, provider_code, etc)</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <input 
+              type="checkbox" 
+              checked={form.is_active} 
+              onChange={e=>setForm({...form, is_active:e.target.checked})}
+              id="is_active"
+            />
+            <label htmlFor="is_active" className="text-sm">Ativo</label>
+          </div>
+          <div className="flex gap-2 md:col-span-2">
+            <button 
+              onClick={createOrUpdate} 
+              disabled={loading || !form.agent_code || !form.agent_key || !form.api_url}
+              className="flex-1 bg-[#ff6b35] hover:bg-[#ff7b35] text-white py-2 rounded font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? 'Salvando...' : editingId ? 'Atualizar Agente' : 'Cadastrar Agente'}
+            </button>
+            {editingId && (
+              <button 
+                onClick={resetForm}
+                className="px-4 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded font-semibold"
+              >
+                Cancelar
+              </button>
+            )}
+          </div>
         </div>
-        <button onClick={create} className="md:col-span-2 bg-[#ff6b35] hover:bg-[#ff7b35] text-white py-2 rounded font-semibold">Salvar agente</button>
       </div>
 
-      <div className="grid gap-3">
-        {items.map(a => (
-          <div key={a.id} className="p-4 rounded border border-gray-700 bg-gray-800/50">
-            <div className="font-bold text-lg">{a.agent_code}</div>
-            <div className="text-sm text-gray-400">API: {a.api_url}</div>
-            <div className="text-sm text-gray-400">Status: {a.is_active ? 'Ativo' : 'Inativo'}</div>
-            <div className="text-xs text-gray-500 break-all mt-1">Credenciais: {a.credentials}</div>
+      <div className="space-y-3">
+        <h3 className="text-lg font-semibold">Agentes Cadastrados</h3>
+        {items.length === 0 ? (
+          <div className="text-center py-8 text-gray-400">
+            <p>Nenhum agente cadastrado</p>
+            <p className="text-sm mt-2">Preencha o formulário acima para cadastrar um agente</p>
           </div>
-        ))}
+        ) : (
+          <div className="grid gap-3">
+            {items.map(a => (
+              <div key={a.id} className="p-4 rounded border border-gray-700 bg-gray-800/50">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="font-bold text-lg mb-2">ID: {a.id}</div>
+                    <div className="text-sm text-gray-400 mb-1">Agent Code: <span className="text-white font-mono">{a.agent_code}</span></div>
+                    <div className="text-sm text-gray-400 mb-1">API: <span className="text-white">{a.api_url}</span></div>
+                    <div className="text-sm text-gray-400 mb-1">
+                      Status: <span className={a.is_active ? 'text-green-400 font-semibold' : 'text-red-400 font-semibold'}>{a.is_active ? 'Ativo' : 'Inativo'}</span>
+                    </div>
+                    {a.credentials && (
+                      <div className="text-xs text-gray-500 break-all mt-2 p-2 bg-gray-900/50 rounded">
+                        <span className="text-gray-400">Credenciais:</span> {a.credentials}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-2 ml-4">
+                    <button
+                      onClick={() => loadForEdit(a)}
+                      className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded"
+                    >
+                      Editar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="space-y-3 mt-6">
