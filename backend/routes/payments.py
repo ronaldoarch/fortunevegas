@@ -3,9 +3,10 @@ Rotas públicas para pagamentos (depósitos e saques) usando Gatebox
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, List
+from sqlalchemy import desc
 from database import get_db
-from models import User, Deposit, Withdrawal, Gateway, TransactionStatus, FTDSettings, WebhookEventType
+from models import User, Deposit, Withdrawal, Gateway, TransactionStatus, FTDSettings, WebhookEventType, Bet, BetStatus
 from gatebox_api import GateboxAPI
 from schemas import DepositResponse, WithdrawalResponse, DepositPixRequest, WithdrawalPixRequest
 from dependencies import get_current_user
@@ -1210,3 +1211,56 @@ async def webhook_pix_cashout(request: Request, db: Session = Depends(get_db)):
     except Exception as e:
         print(f"Erro ao processar webhook PIX Cash-out: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Erro ao processar webhook: {str(e)}")
+
+
+# ========== ENDPOINTS PÚBLICOS PARA HISTÓRICO DO USUÁRIO ==========
+
+@router.get("/my-deposits", response_model=List[DepositResponse])
+async def get_my_deposits(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Buscar depósitos do usuário logado"""
+    deposits = db.query(Deposit).filter(
+        Deposit.user_id == current_user.id
+    ).order_by(desc(Deposit.created_at)).all()
+    return deposits
+
+
+@router.get("/my-withdrawals", response_model=List[WithdrawalResponse])
+async def get_my_withdrawals(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Buscar saques do usuário logado"""
+    withdrawals = db.query(Withdrawal).filter(
+        Withdrawal.user_id == current_user.id
+    ).order_by(desc(Withdrawal.created_at)).all()
+    return withdrawals
+
+
+@router.get("/my-bets")
+async def get_my_bets(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Buscar apostas do usuário logado"""
+    bets = db.query(Bet).filter(
+        Bet.user_id == current_user.id
+    ).order_by(desc(Bet.created_at)).all()
+    
+    return [
+        {
+            "id": bet.id,
+            "game_id": bet.game_id,
+            "game_name": bet.game_name,
+            "provider": bet.provider,
+            "amount": bet.amount,
+            "win_amount": bet.win_amount,
+            "status": bet.status.value,
+            "transaction_id": bet.transaction_id,
+            "created_at": bet.created_at.isoformat(),
+            "updated_at": bet.updated_at.isoformat(),
+        }
+        for bet in bets
+    ]
