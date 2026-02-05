@@ -68,7 +68,41 @@ export default function Admin() {
       navigate('/admin/login');
       return;
     }
-    loadStats();
+    
+    // Validar token antes de carregar dados
+    const validateToken = async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/auth/me`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        
+        if (!response.ok) {
+          // Token inválido ou expirado
+          localStorage.removeItem('admin_token');
+          navigate('/admin/login');
+          return;
+        }
+        
+        const userData = await response.json();
+        // Verificar se ainda é admin
+        if (userData.role !== 'admin') {
+          localStorage.removeItem('admin_token');
+          navigate('/admin/login');
+          return;
+        }
+        
+        // Token válido, carregar dados
+        loadStats();
+      } catch (error) {
+        console.error('Erro ao validar token:', error);
+        localStorage.removeItem('admin_token');
+        navigate('/admin/login');
+      }
+    };
+    
+    validateToken();
   }, [token, navigate]);
 
   const loadStats = async () => {
@@ -79,6 +113,14 @@ export default function Admin() {
           'Authorization': `Bearer ${token}`
         }
       });
+      
+      // Se token expirou ou não autorizado, redirecionar para login
+      if (response.status === 401 || response.status === 403) {
+        localStorage.removeItem('admin_token');
+        navigate('/admin/login');
+        return;
+      }
+      
       if (response.ok) {
         const data = await response.json();
         setStats(data);
