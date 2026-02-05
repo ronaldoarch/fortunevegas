@@ -281,6 +281,17 @@ def run_migrations():
             """))
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_manager_settings_manager_id ON manager_settings(manager_id)"))
             
+            # 13. Adicionar coluna rtp em igamewin_agents (se não existir)
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'igamewin_agents' AND column_name = 'rtp'
+            """))
+            if result.fetchone() is None:
+                conn.execute(text("ALTER TABLE igamewin_agents ADD COLUMN rtp FLOAT DEFAULT 96.0 NOT NULL"))
+                conn.execute(text("UPDATE igamewin_agents SET rtp = 96.0 WHERE rtp IS NULL"))
+                print("✓ Added rtp column to igamewin_agents")
+            
             print("✓ Migrations executed successfully")
     except Exception as e:
         # Ignora erros de "already exists" ou constraints duplicadas
