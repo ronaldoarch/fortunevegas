@@ -239,10 +239,11 @@ class GateboxAPI:
             "amount": amount
         }
         
-        if document_number:
+        if document_number and document_number.strip() and document_number.lower() != "null":
             # Limpar documento (remover pontuação)
             document_clean = re.sub(r'[^0-9]', '', document_number)
-            payload["documentNumber"] = document_clean
+            if document_clean:  # Só adicionar se tiver conteúdo após limpeza
+                payload["documentNumber"] = document_clean
         
         if description:
             payload["description"] = description

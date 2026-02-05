@@ -882,17 +882,29 @@ async def _process_pix_cashout(data: dict, db: Session):
         transaction_data.get("end_to_end")
     )
     
-    # Extrair motivo da falha (se houver)
+    # Extrair motivo da falha (se houver) - verificar em vários lugares
     failure_reason = (
         data.get("reason") or
         data.get("message") or
         data.get("error") or
         data.get("errorMessage") or
         data.get("failureReason") or
+        data.get("detail") or
+        data.get("description") or
         transaction_data.get("reason") or
         transaction_data.get("message") or
-        transaction_data.get("error")
+        transaction_data.get("error") or
+        transaction_data.get("errorMessage")
     )
+    
+    # Verificar também em bankData
+    bank_data = data.get("bankData") or {}
+    if not failure_reason:
+        failure_reason = (
+            bank_data.get("error") or
+            bank_data.get("message") or
+            bank_data.get("reason")
+        )
     
     print(f"[WEBHOOK] External ID extraído: {external_id}")
     print(f"[WEBHOOK] Transaction ID extraído: {transaction_id}")
