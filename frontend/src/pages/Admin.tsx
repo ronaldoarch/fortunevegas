@@ -60,7 +60,6 @@ export default function Admin() {
   const [expandedSections, setExpandedSections] = useState({
     financeiro: true,
     notificacoes: true,
-    marketing: true,
     geral: true,
   });
 
