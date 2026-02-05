@@ -42,6 +42,7 @@ from igamewin_api import get_igamewin_api
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 public_router = APIRouter(prefix="/api/public", tags=["public"])
+seamless_router = APIRouter(prefix="", tags=["seamless"])  # Router sem prefixo para /gold_api
 
 
 # ========== USERS ==========
@@ -1013,7 +1014,8 @@ async def launch_game(
 
 
 # ========== SEAMLESS API (IGameWin) ==========
-@public_router.post("/gold_api")
+# Endpoint sem prefixo para IGameWin chamar diretamente /gold_api
+@seamless_router.post("/gold_api")
 async def seamless_api(
     request: dict,
     db: Session = Depends(get_db)
@@ -1030,12 +1032,19 @@ async def seamless_api(
     - sport: Apostas esportivas
     - lottery: Loterias
     """
+    import json as json_module
+    print(f"[SEAMLESS] ========== REQUEST RECEBIDO ==========")
+    print(f"[SEAMLESS] Request data: {json_module.dumps(request, indent=2)}")
+    
     method = request.get("method")
     agent_code = request.get("agent_code")
     agent_secret = request.get("agent_secret")
     user_code = request.get("user_code")
     
+    print(f"[SEAMLESS] Method: {method}, Agent Code: {agent_code}, User Code: {user_code}")
+    
     if not method or not agent_code or not agent_secret or not user_code:
+        print(f"[SEAMLESS] ❌ Parâmetros inválidos")
         return {"status": 0, "msg": "INVALID_PARAMETER"}
     
     # Verificar credenciais do agente
@@ -1067,6 +1076,7 @@ async def seamless_api(
     
     # Método: user_balance
     if method == "user_balance":
+        print(f"[SEAMLESS] ✅ Retornando saldo do usuário: {user.balance}")
         return {
             "status": 1,
             "user_balance": float(user.balance)
