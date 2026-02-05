@@ -8,7 +8,7 @@ from sqlalchemy import desc, or_
 from database import get_db
 from models import User, Deposit, Withdrawal, Gateway, TransactionStatus, FTDSettings, WebhookEventType, Bet, BetStatus, Notification, Coupon, CouponUse
 from gatebox_api import GateboxAPI
-from schemas import DepositResponse, WithdrawalResponse, DepositPixRequest, WithdrawalPixRequest
+from schemas import DepositResponse, WithdrawalResponse, DepositPixRequest, WithdrawalPixRequest, CouponValidateRequest
 from dependencies import get_current_user
 from webhook_dispatcher import dispatch_webhook
 from datetime import datetime
