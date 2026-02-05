@@ -437,23 +437,32 @@ def run_migrations():
                 
                 # Se há bônus não sacável, mover do balance para bonus_balance
                 if non_withdrawable_bonus > 0:
-                    # Verificar se o usuário tem saldo suficiente (pode ter sido usado em apostas)
+                    # Verificar saldo atual do usuário
                     user_result = conn.execute(text("""
-                        SELECT balance FROM users WHERE id = :id
+                        SELECT balance, COALESCE(bonus_balance, 0) as bonus_balance FROM users WHERE id = :id
                     """), {"id": user_id})
                     user_row = user_result.fetchone()
                     
-                    if user_row and user_row[0] >= non_withdrawable_bonus:
-                        conn.execute(text("""
-                            UPDATE users 
-                            SET balance = balance - :non_withdrawable,
-                                bonus_balance = COALESCE(bonus_balance, 0) + :non_withdrawable
-                            WHERE id = :user_id
-                        """), {
-                            "non_withdrawable": non_withdrawable_bonus,
-                            "user_id": user_id
-                        })
-                        fixed_count += 1
+                    if user_row:
+                        current_balance = user_row[0] or 0.0
+                        current_bonus_balance = user_row[1] or 0.0
+                        
+                        # Só mover o que ainda está disponível (pode ter sido usado em apostas)
+                        # Se o usuário tem menos que o depósito + bônus, significa que já usou parte
+                        # Nesse caso, mover apenas o que ainda está no balance
+                        amount_to_move = min(non_withdrawable_bonus, max(0, current_balance - amount))
+                        
+                        if amount_to_move > 0:
+                            conn.execute(text("""
+                                UPDATE users 
+                                SET balance = balance - :amount_to_move,
+                                    bonus_balance = COALESCE(bonus_balance, 0) + :amount_to_move
+                                WHERE id = :user_id
+                            """), {
+                                "amount_to_move": amount_to_move,
+                                "user_id": user_id
+                            })
+                            fixed_count += 1
             
             if fixed_count > 0:
                 print(f"✓ Corrigidos {fixed_count} depósitos - bônus não sacáveis movidos para bonus_balance")
