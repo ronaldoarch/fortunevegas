@@ -469,24 +469,54 @@ async def check_deposit_status(
                 }
     elif status_upper in ["CANCELLED", "CANCELED", "REJECTED", "FAILED", "CHARGEBACK", "EXPIRED"]:
         if deposit.status == TransactionStatus.APPROVED:
-            # Reverter saldo se já foi aprovado (depósito + bônus)
+            # Reverter saldo se já foi aprovado (mesma lógica dos webhooks)
             user = db.query(User).filter(User.id == deposit.user_id).first()
             if user:
-                total_to_revert = deposit.amount + deposit.bonus_amount
-                if user.balance >= total_to_revert:
-                    user.balance -= total_to_revert
+                # Extrair informações do metadata
+                metadata = json.loads(deposit.metadata_json) if deposit.metadata_json else {}
+                promotion_id = metadata.get("promotion_id")
+                promotion_bonus = metadata.get("promotion_bonus", 0)
+                coupon_bonus = metadata.get("coupon_bonus", 0)
+                
+                # Reverter valor real depositado
+                real_amount = deposit.amount
+                if user.balance >= real_amount:
+                    user.balance -= real_amount
                     
-                    # Reverter uso do cupom se houver
-                    if deposit.coupon_code and deposit.bonus_amount > 0:
+                    # Reverter bônus sacável e não sacável separadamente
+                    if coupon_bonus > 0 and deposit.coupon_code:
                         coupon = db.query(Coupon).filter(Coupon.code == deposit.coupon_code).first()
-                        if coupon and coupon.uses > 0:
-                            coupon.uses -= 1
+                        if coupon:
+                            if coupon.is_withdrawable:
+                                if user.balance >= coupon_bonus:
+                                    user.balance -= coupon_bonus
+                            else:
+                                if user.bonus_balance >= coupon_bonus:
+                                    user.bonus_balance -= coupon_bonus
+                            if coupon.uses > 0:
+                                coupon.uses -= 1
                         # Remover registro de uso
                         coupon_use = db.query(CouponUse).filter(
                             CouponUse.deposit_id == deposit.id
                         ).first()
                         if coupon_use:
                             db.delete(coupon_use)
+                    
+                    # Reverter uso da promoção se houver
+                    if promotion_bonus > 0 and promotion_id:
+                        promotion = db.query(Promotion).filter(Promotion.id == promotion_id).first()
+                        if promotion:
+                            if promotion.is_withdrawable:
+                                if user.balance >= promotion_bonus:
+                                    user.balance -= promotion_bonus
+                            else:
+                                if user.bonus_balance >= promotion_bonus:
+                                    user.bonus_balance -= promotion_bonus
+                        promotion_use = db.query(PromotionUse).filter(
+                            PromotionUse.deposit_id == deposit.id
+                        ).first()
+                        if promotion_use:
+                            db.delete(promotion_use)
         deposit.status = TransactionStatus.CANCELLED
         db.commit()
     
