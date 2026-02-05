@@ -11,7 +11,8 @@ interface User {
   cpf?: string;
   phone?: string;
   role: string;
-  balance: number;
+  balance: number;  // Saldo sacável (real + bônus sacáveis + ganhos)
+  bonus_balance?: number;  // Saldo de bônus não sacável
   is_active: boolean;
   is_verified: boolean;
   affiliate_id?: number;
