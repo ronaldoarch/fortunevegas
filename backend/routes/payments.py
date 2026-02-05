@@ -437,10 +437,22 @@ async def create_pix_withdrawal(
     external_id = f"WTH_{user.id}_{int(datetime.utcnow().timestamp())}"
     
     # Realizar transferência PIX
-    # A Gatebox requer name (nome do recebedor) - usar nome do usuário se disponível
-    # Usar username como fallback se não houver nome completo
-    # IMPORTANTE: Para chave PIX de telefone, o nome deve corresponder ao titular da conta
-    recipient_name = user.username or user.email.split('@')[0] if user.email else "Usuário"
+    # A Gatebox requer name (nome do recebedor) - usar nome completo se disponível
+    # IMPORTANTE: Para chave PIX de telefone, o nome deve corresponder ao titular da conta bancária
+    # Tentar usar um nome mais descritivo, mas se não houver, usar username
+    # Se o username for um telefone, usar um nome genérico
+    recipient_name = user.username or "Usuário"
+    
+    # Se o username for apenas números (telefone), usar um nome mais apropriado
+    if recipient_name and recipient_name.replace(/\D/g, '').length === recipient_name.length:
+        # Username é apenas números, usar formato mais apropriado
+        recipient_name = f"Cliente {user.id}" if user.id else "Usuário"
+    
+    # Se houver email, tentar extrair nome do email
+    if user.email and '@' in user.email:
+        email_name = user.email.split('@')[0]
+        if email_name and len(email_name) > 3 and not email_name.replace(/\D/g, '').length === email_name.length:
+            recipient_name = email_name
     
     # Log dos dados que serão enviados
     print(f"[WITHDRAWAL] Dados do saque:")
