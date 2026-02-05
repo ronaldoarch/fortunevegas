@@ -1955,6 +1955,186 @@ async def delete_affiliate(
     return {"success": True, "message": "Afiliado deletado com sucesso"}
 
 
+# ========== MANAGERS ==========
+@router.get("/managers")
+async def get_managers(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Listar gerentes com suas configurações"""
+    managers_settings = db.query(ManagerSettings).all()
+    result = []
+    
+    for ms in managers_settings:
+        manager_user = db.query(User).filter(User.id == ms.manager_id).first()
+        if not manager_user:
+            continue
+        
+        # Buscar sub-afiliados do gerente
+        sub_affiliates = db.query(SubAffiliate).filter(SubAffiliate.manager_id == ms.manager_id).all()
+        sub_affiliate_ids = [sub.affiliate_id for sub in sub_affiliates]
+        
+        # Buscar usuários vinculados aos sub-afiliados
+        users_from_subs = db.query(User).filter(User.affiliate_id.in_(sub_affiliate_ids)).all()
+        user_ids = [u.id for u in users_from_subs]
+        
+        # FTDs dos subordinados
+        ftds = db.query(FTD).filter(FTD.user_id.in_(user_ids)).all()
+        
+        # Calcular CPA ganho
+        cpa_earned = 0.0
+        for ftd in ftds:
+            user = next((u for u in users_from_subs if u.id == ftd.user_id), None)
+            if user and user.affiliate_id:
+                sub = next((s for s in sub_affiliates if s.affiliate_id == user.affiliate_id), None)
+                if sub:
+                    cpa_earned += sub.cpa_rate
+        
+        # Depósitos dos subordinados
+        deposits = db.query(Deposit).filter(Deposit.user_id.in_(user_ids)).all()
+        total_deposit_amount = sum(d.amount for d in deposits)
+        
+        # Revshare ganho
+        revshare_earned = (total_deposit_amount * ms.revshare_rate) / 100 if ms.revshare_rate > 0 else 0.0
+        total_earned = cpa_earned + revshare_earned
+        
+        result.append({
+            "id": ms.id,
+            "manager_id": ms.manager_id,
+            "user_id": manager_user.id,
+            "user_name": manager_user.username,
+            "user_email": manager_user.email,
+            "cpa_pool": ms.cpa_pool,
+            "cpa_distributed": ms.cpa_distributed,
+            "cpa_available": ms.cpa_pool - ms.cpa_distributed,
+            "revshare_rate": ms.revshare_rate,
+            "total_earned": total_earned,
+            "is_active": manager_user.is_active,
+            "created_at": ms.created_at,
+            "updated_at": ms.updated_at
+        })
+    
+    return result
+
+
+@router.post("/managers", status_code=status.HTTP_201_CREATED)
+async def create_manager(
+    user_id: int = Query(...),
+    cpa_pool: float = Query(...),
+    revshare_rate: float = Query(0.0),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Criar novo gerente"""
+    # Verificar se usuário existe
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    
+    # Verificar se já é gerente
+    existing = db.query(ManagerSettings).filter(ManagerSettings.manager_id == user_id).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Usuário já é gerente")
+    
+    # Criar configuração do gerente
+    manager_settings = ManagerSettings(
+        manager_id=user_id,
+        cpa_pool=cpa_pool,
+        cpa_distributed=0.0,
+        revshare_rate=revshare_rate
+    )
+    db.add(manager_settings)
+    
+    # Atualizar role do usuário para manager se necessário
+    if user.role not in [UserRole.AGENT, UserRole.MANAGER]:
+        user.role = UserRole.MANAGER
+    
+    db.commit()
+    db.refresh(manager_settings)
+    
+    return {
+        "id": manager_settings.id,
+        "manager_id": manager_settings.manager_id,
+        "cpa_pool": manager_settings.cpa_pool,
+        "revshare_rate": manager_settings.revshare_rate
+    }
+
+
+@router.put("/managers/{manager_id}")
+async def update_manager(
+    manager_id: int,
+    cpa_pool: Optional[float] = None,
+    revshare_rate: Optional[float] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Atualizar configurações do gerente"""
+    manager_settings = db.query(ManagerSettings).filter(ManagerSettings.manager_id == manager_id).first()
+    if not manager_settings:
+        raise HTTPException(status_code=404, detail="Gerente não encontrado")
+    
+    if cpa_pool is not None:
+        manager_settings.cpa_pool = cpa_pool
+    if revshare_rate is not None:
+        manager_settings.revshare_rate = revshare_rate
+    
+    db.commit()
+    db.refresh(manager_settings)
+    
+    # Retornar no mesmo formato do GET
+    manager_user = db.query(User).filter(User.id == manager_settings.manager_id).first()
+    sub_affiliates = db.query(SubAffiliate).filter(SubAffiliate.manager_id == manager_settings.manager_id).all()
+    sub_affiliate_ids = [sub.affiliate_id for sub in sub_affiliates]
+    users_from_subs = db.query(User).filter(User.affiliate_id.in_(sub_affiliate_ids)).all()
+    user_ids = [u.id for u in users_from_subs]
+    
+    ftds = db.query(FTD).filter(FTD.user_id.in_(user_ids)).all()
+    cpa_earned = 0.0
+    for ftd in ftds:
+        user = next((u for u in users_from_subs if u.id == ftd.user_id), None)
+        if user and user.affiliate_id:
+            sub = next((s for s in sub_affiliates if s.affiliate_id == user.affiliate_id), None)
+            if sub:
+                cpa_earned += sub.cpa_rate
+    
+    deposits = db.query(Deposit).filter(Deposit.user_id.in_(user_ids)).all()
+    total_deposit_amount = sum(d.amount for d in deposits)
+    revshare_earned = (total_deposit_amount * manager_settings.revshare_rate) / 100 if manager_settings.revshare_rate > 0 else 0.0
+    total_earned = cpa_earned + revshare_earned
+    
+    return {
+        "id": manager_settings.id,
+        "manager_id": manager_settings.manager_id,
+        "user_id": manager_user.id if manager_user else None,
+        "user_name": manager_user.username if manager_user else None,
+        "user_email": manager_user.email if manager_user else None,
+        "cpa_pool": manager_settings.cpa_pool,
+        "cpa_distributed": manager_settings.cpa_distributed,
+        "cpa_available": manager_settings.cpa_pool - manager_settings.cpa_distributed,
+        "revshare_rate": manager_settings.revshare_rate,
+        "total_earned": total_earned,
+        "is_active": manager_user.is_active if manager_user else False,
+        "created_at": manager_settings.created_at,
+        "updated_at": manager_settings.updated_at
+    }
+
+
+@router.delete("/managers/{manager_id}")
+async def delete_manager(
+    manager_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Deletar gerente"""
+    manager_settings = db.query(ManagerSettings).filter(ManagerSettings.manager_id == manager_id).first()
+    if not manager_settings:
+        raise HTTPException(status_code=404, detail="Gerente não encontrado")
+    
+    db.delete(manager_settings)
+    db.commit()
+    return {"success": True, "message": "Gerente deletado com sucesso"}
+
+
 # ========== IGAMEWIN PROVIDER CONFIG ==========
 @router.get("/igamewin-provider-configs", response_model=List[IGameWinProviderConfigResponse])
 async def get_igamewin_provider_configs(

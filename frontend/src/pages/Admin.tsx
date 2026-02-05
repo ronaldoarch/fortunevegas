@@ -2363,18 +2363,31 @@ function NotificationsTab({ token }: { token: string }) {
 // ========== AFFILIATES TAB ==========
 function AffiliatesTab({ token }: { token: string }) {
   const [affiliates, setAffiliates] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
+    user_id: '',
     code: '',
-    name: '',
-    email: '',
-    phone: '',
-    commission_rate: 0,
+    cpa: 0,
+    revshare: 0,
     is_active: true
   });
   const [editingId, setEditingId] = useState<number | null>(null);
+
+  const fetchUsers = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/admin/users?limit=1000`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        setUsers(await res.json());
+      }
+    } catch (err) {
+      console.error('Erro ao carregar usuários:', err);
+    }
+  };
 
   const fetchAffiliates = async () => {
     setLoading(true); setError('');
@@ -2383,7 +2396,63 @@ function AffiliatesTab({ token }: { token: string }) {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!res.ok) throw new Error('Falha ao carregar afiliados');
-      setAffiliates(await res.json());
+      const data = await res.json();
+      // Buscar estatísticas para cada afiliado
+      const affiliatesWithStats = await Promise.all(data.map(async (affiliate: any) => {
+        try {
+          // Buscar usuários vinculados a este afiliado
+          const usersRes = await fetch(`${API_URL}/api/admin/users?affiliate_id=${affiliate.id}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          const subordinateUsers = usersRes.ok ? await usersRes.json() : [];
+          const subordinateIds = subordinateUsers.map((u: any) => u.id);
+          
+          // Buscar depósitos dos subordinados
+          const depositsRes = await fetch(`${API_URL}/api/admin/deposits`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          const allDeposits = depositsRes.ok ? await depositsRes.json() : [];
+          const deposits = allDeposits.filter((d: any) => subordinateIds.includes(d.user_id));
+          const totalDeposits = deposits.reduce((sum: number, d: any) => sum + (d.amount || 0), 0);
+          
+          // Buscar FTDs
+          const ftdsRes = await fetch(`${API_URL}/api/admin/ftds`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          const allFtds = ftdsRes.ok ? await ftdsRes.json() : [];
+          const ftds = allFtds.filter((f: any) => subordinateIds.includes(f.user_id));
+          
+          // Calcular ganhos
+          const cpaRate = 2.0; // Valor fixo de CPA
+          const cpaEarned = ftds.length * cpaRate;
+          const revshareRate = affiliate.commission_rate || 0;
+          const revshareEarned = (totalDeposits * revshareRate) / 100;
+          const totalEarned = cpaEarned + revshareEarned;
+          
+          return {
+            ...affiliate,
+            user_id: subordinateUsers[0]?.id || null,
+            user_name: subordinateUsers[0]?.username || '-',
+            cpa: cpaRate,
+            revshare: revshareRate,
+            deposits_brought: totalDeposits,
+            total_earned: totalEarned,
+            referrals: subordinateUsers.length
+          };
+        } catch (err) {
+          return {
+            ...affiliate,
+            user_id: null,
+            user_name: '-',
+            cpa: 0,
+            revshare: affiliate.commission_rate || 0,
+            deposits_brought: 0,
+            total_earned: 0,
+            referrals: 0
+          };
+        }
+      }));
+      setAffiliates(affiliatesWithStats);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -2394,6 +2463,21 @@ function AffiliatesTab({ token }: { token: string }) {
   const createOrUpdate = async () => {
     setLoading(true); setError('');
     try {
+      const selectedUser = users.find(u => u.id === parseInt(form.user_id));
+      if (!selectedUser && !editingId) {
+        throw new Error('Selecione um usuário');
+      }
+      
+      const affiliateData = {
+        code: form.code,
+        name: selectedUser?.username || selectedUser?.email || form.code,
+        email: selectedUser?.email || '',
+        phone: selectedUser?.phone || '',
+        commission_rate: form.revshare,
+        is_active: form.is_active,
+        metadata_json: JSON.stringify({ cpa: form.cpa, user_id: parseInt(form.user_id) })
+      };
+      
       const url = editingId
         ? `${API_URL}/api/admin/affiliates/${editingId}`
         : `${API_URL}/api/admin/affiliates`;
@@ -2402,16 +2486,30 @@ function AffiliatesTab({ token }: { token: string }) {
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(form)
+        body: JSON.stringify(affiliateData)
       });
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.detail || 'Falha ao salvar');
       }
+      
+      // Vincular usuário ao afiliado
+      if (!editingId && selectedUser) {
+        const updateUserRes = await fetch(`${API_URL}/api/admin/users/${selectedUser.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ affiliate_id: (await res.json()).id })
+        });
+        if (!updateUserRes.ok) {
+          console.error('Erro ao vincular usuário ao afiliado');
+        }
+      }
+      
       await fetchAffiliates();
       setShowForm(false);
-      setForm({ code: '', name: '', email: '', phone: '', commission_rate: 0, is_active: true });
+      setForm({ user_id: '', code: '', cpa: 0, revshare: 0, is_active: true });
       setEditingId(null);
+      setError('');
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -2421,12 +2519,12 @@ function AffiliatesTab({ token }: { token: string }) {
 
   const loadForEdit = (affiliate: any) => {
     setEditingId(affiliate.id);
+    const metadata = affiliate.metadata_json ? JSON.parse(affiliate.metadata_json) : {};
     setForm({
+      user_id: affiliate.user_id?.toString() || '',
       code: affiliate.code,
-      name: affiliate.name,
-      email: affiliate.email || '',
-      phone: affiliate.phone || '',
-      commission_rate: affiliate.commission_rate || 0,
+      cpa: metadata.cpa || 0,
+      revshare: affiliate.commission_rate || 0,
       is_active: affiliate.is_active ?? true
     });
     setShowForm(true);
@@ -2450,6 +2548,7 @@ function AffiliatesTab({ token }: { token: string }) {
   };
 
   useEffect(() => {
+    fetchUsers();
     fetchAffiliates();
   }, []);
 
@@ -2459,7 +2558,7 @@ function AffiliatesTab({ token }: { token: string }) {
         <h2 className="text-2xl font-bold">Afiliados</h2>
         <div className="flex gap-2">
           <button
-            onClick={() => { setShowForm(!showForm); setEditingId(null); setForm({ code: '', name: '', email: '', phone: '', commission_rate: 0, is_active: true }); }}
+            onClick={() => { setShowForm(!showForm); setEditingId(null); setForm({ user_id: '', code: '', cpa: 0, revshare: 0, is_active: true }); }}
             className="px-3 py-2 bg-[#d4af37] hover:bg-[#c5a028] text-black rounded font-semibold"
           >
             {showForm ? 'Cancelar' : 'Novo Afiliado'}
@@ -2473,112 +2572,136 @@ function AffiliatesTab({ token }: { token: string }) {
       {error && <div className="text-red-400">{error}</div>}
 
       {showForm && (
-        <div className="bg-gray-800/60 p-4 rounded border border-gray-700 space-y-3">
-          <h3 className="font-semibold">{editingId ? 'Editar' : 'Novo'} Afiliado</h3>
-          <div className="grid md:grid-cols-2 gap-3">
-            <input
-              placeholder="Código único *"
-              value={form.code}
-              onChange={(e) => setForm({...form, code: e.target.value})}
-              className="bg-gray-700 rounded px-3 py-2 text-sm"
-              disabled={!!editingId}
-            />
-            <input
-              placeholder="Nome *"
-              value={form.name}
-              onChange={(e) => setForm({...form, name: e.target.value})}
-              className="bg-gray-700 rounded px-3 py-2 text-sm"
-            />
-            <input
-              placeholder="Email"
-              type="email"
-              value={form.email}
-              onChange={(e) => setForm({...form, email: e.target.value})}
-              className="bg-gray-700 rounded px-3 py-2 text-sm"
-            />
-            <input
-              placeholder="Telefone"
-              value={form.phone}
-              onChange={(e) => setForm({...form, phone: e.target.value})}
-              className="bg-gray-700 rounded px-3 py-2 text-sm"
-            />
-            <input
-              placeholder="Taxa de Comissão (%)"
-              type="number"
-              step="0.01"
-              value={form.commission_rate}
-              onChange={(e) => setForm({...form, commission_rate: parseFloat(e.target.value) || 0})}
-              className="bg-gray-700 rounded px-3 py-2 text-sm"
-            />
-            <div className="flex items-center gap-2">
+        <div className="bg-gray-800/60 p-6 rounded-lg border border-gray-700 space-y-4">
+          <h3 className="text-lg font-semibold">{editingId ? 'Editar' : 'Criar Novo'} Afiliado</h3>
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Usuário *</label>
+              <select
+                value={form.user_id}
+                onChange={(e) => setForm({...form, user_id: e.target.value})}
+                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+                disabled={!!editingId}
+              >
+                <option value="">Selecione um usuário</option>
+                {users.map(u => (
+                  <option key={u.id} value={u.id}>{u.username} {u.email ? `(${u.email})` : ''}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Código do Afiliado *</label>
               <input
-                type="checkbox"
-                checked={form.is_active}
-                onChange={(e) => setForm({...form, is_active: e.target.checked})}
+                placeholder="Ex: AFF001"
+                value={form.code}
+                onChange={(e) => setForm({...form, code: e.target.value.toUpperCase()})}
+                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+                disabled={!!editingId}
               />
-              <label className="text-sm">Ativo</label>
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">CPA (R$)</label>
+              <input
+                type="number"
+                step="0.01"
+                placeholder="0.00"
+                value={form.cpa}
+                onChange={(e) => setForm({...form, cpa: parseFloat(e.target.value) || 0})}
+                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Revshare (%)</label>
+              <input
+                type="number"
+                step="0.01"
+                placeholder="0.00"
+                value={form.revshare}
+                onChange={(e) => setForm({...form, revshare: parseFloat(e.target.value) || 0})}
+                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
+              />
             </div>
           </div>
           <button
             onClick={createOrUpdate}
-            disabled={loading || !form.code || !form.name}
-            className="bg-[#ff6b35] hover:bg-[#ff7b35] text-white py-2 px-4 rounded font-semibold disabled:opacity-50"
+            disabled={loading || !form.code || !form.user_id}
+            className="bg-[#d4af37] hover:bg-[#ffd700] text-black py-2 px-4 rounded font-semibold disabled:opacity-50"
           >
-            {editingId ? 'Atualizar' : 'Criar'}
+            {loading ? 'Salvando...' : editingId ? 'Atualizar' : 'Criar'}
           </button>
         </div>
       )}
 
       {loading && affiliates.length === 0 && <div>Carregando...</div>}
 
-      <div className="overflow-x-auto border border-gray-700 rounded-lg">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-800">
-            <tr>
-              <th className="px-3 py-2 text-left">Código</th>
-              <th className="px-3 py-2 text-left">Nome</th>
-              <th className="px-3 py-2 text-left">Email</th>
-              <th className="px-3 py-2 text-left">Comissão</th>
-              <th className="px-3 py-2 text-left">Status</th>
-              <th className="px-3 py-2 text-left">Ações</th>
-            </tr>
-          </thead>
-          <tbody>
-            {affiliates.length === 0 && !loading ? (
+      <div className="bg-gray-800/60 rounded-lg border border-gray-700 overflow-hidden">
+        <div className="flex items-center justify-between p-4 border-b border-gray-700">
+          <h3 className="text-lg font-semibold">Lista de Afiliados</h3>
+          <button onClick={fetchAffiliates} className="flex items-center gap-2 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm">
+            <RefreshCw size={16} /> Atualizar
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-700">
               <tr>
-                <td colSpan={6} className="px-3 py-4 text-center text-gray-400">
-                  Nenhum afiliado cadastrado
-                </td>
+                <th className="px-4 py-3 text-left">ID</th>
+                <th className="px-4 py-3 text-left">Usuário</th>
+                <th className="px-4 py-3 text-left">Código</th>
+                <th className="px-4 py-3 text-left">CPA (R$)</th>
+                <th className="px-4 py-3 text-left">Revshare (%)</th>
+                <th className="px-4 py-3 text-left">Trouxe (depósitos)</th>
+                <th className="px-4 py-3 text-left">Total Ganho</th>
+                <th className="px-4 py-3 text-left">Indicações</th>
+                <th className="px-4 py-3 text-left">Status</th>
+                <th className="px-4 py-3 text-left">Ações</th>
               </tr>
-            ) : (
-              affiliates.map(a => (
-                <tr key={a.id} className="border-t border-gray-800">
-                  <td className="px-3 py-2 font-mono">{a.code}</td>
-                  <td className="px-3 py-2">{a.name}</td>
-                  <td className="px-3 py-2">{a.email || '—'}</td>
-                  <td className="px-3 py-2">{a.commission_rate}%</td>
-                  <td className="px-3 py-2">{a.is_active ? 'Ativo' : 'Inativo'}</td>
-                  <td className="px-3 py-2">
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => loadForEdit(a)}
-                        className="text-[#d4af37] hover:text-[#ffd700] text-xs"
-                      >
-                        Editar
-                      </button>
-                      <button
-                        onClick={() => deleteAffiliate(a.id)}
-                        className="text-red-400 hover:text-red-300 text-xs"
-                      >
-                        Deletar
-                      </button>
-                    </div>
+            </thead>
+            <tbody>
+              {affiliates.length === 0 && !loading ? (
+                <tr>
+                  <td colSpan={10} className="px-4 py-8 text-center text-gray-400">
+                    Nenhum afiliado cadastrado
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : (
+                affiliates.map(a => (
+                  <tr key={a.id} className="border-t border-gray-700 hover:bg-gray-800/50">
+                    <td className="px-4 py-3">{a.id}</td>
+                    <td className="px-4 py-3">{a.user_name || '-'}</td>
+                    <td className="px-4 py-3 font-mono">{a.code}</td>
+                    <td className="px-4 py-3">R$ {a.cpa?.toFixed(2) || '0.00'}</td>
+                    <td className="px-4 py-3">{a.revshare?.toFixed(2) || '0.00'}%</td>
+                    <td className="px-4 py-3">R$ {a.deposits_brought?.toFixed(2) || '0.00'}</td>
+                    <td className="px-4 py-3">R$ {a.total_earned?.toFixed(2) || '0.00'}</td>
+                    <td className="px-4 py-3">{a.referrals || 0}</td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-1 rounded text-xs ${a.is_active ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>
+                        {a.is_active ? 'Ativo' : 'Inativo'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => loadForEdit(a)}
+                          className="text-blue-400 hover:text-blue-300 text-sm"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          onClick={() => deleteAffiliate(a.id)}
+                          className="text-red-400 hover:text-red-300 text-sm"
+                        >
+                          Deletar
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
@@ -3246,31 +3369,112 @@ function SupportTab({ token: _token }: { token: string }) {
 }
 
 // ========== MANAGERS TAB ==========
-function ManagersTab({ token: _token }: { token: string }) {
+function ManagersTab({ token }: { token: string }) {
   const [managers, setManagers] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
-    name: '',
-    email: '',
-    username: '',
-    password: '',
-    affiliate_id: '',
-    is_active: true
+    user_id: '',
+    cpa_pool: 0,
+    revshare_rate: 0
   });
+  const [editingId, setEditingId] = useState<number | null>(null);
+
+  const fetchUsers = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/admin/users?limit=1000`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        setUsers(await res.json());
+      }
+    } catch (err) {
+      console.error('Erro ao carregar usuários:', err);
+    }
+  };
 
   const fetchManagers = async () => {
     setLoading(true);
     setError('');
     try {
-      // TODO: Implementar endpoint de gerentes no backend
-      // const res = await fetch(`${API_URL}/api/admin/managers`, {
-      //   headers: { Authorization: `Bearer ${token}` }
-      // });
-      // if (!res.ok) throw new Error('Falha ao carregar gerentes');
-      // setManagers(await res.json());
-      setManagers([]);
+      const res = await fetch(`${API_URL}/api/admin/managers`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error('Falha ao carregar gerentes');
+      setManagers(await res.json());
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const createOrUpdate = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      if (!form.user_id) {
+        throw new Error('Selecione um usuário');
+      }
+      
+      if (editingId) {
+        // Atualizar
+        const res = await fetch(`${API_URL}/api/admin/managers/${editingId}?cpa_pool=${form.cpa_pool}&revshare_rate=${form.revshare_rate}`, {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.detail || 'Falha ao atualizar');
+        }
+      } else {
+        // Criar
+        const res = await fetch(`${API_URL}/api/admin/managers?user_id=${form.user_id}&cpa_pool=${form.cpa_pool}&revshare_rate=${form.revshare_rate}`, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}` 
+          }
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.detail || 'Falha ao criar');
+        }
+      }
+      
+      await fetchManagers();
+      setShowForm(false);
+      setForm({ user_id: '', cpa_pool: 0, revshare_rate: 0 });
+      setEditingId(null);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadForEdit = (manager: any) => {
+    setEditingId(manager.manager_id);
+    setForm({
+      user_id: manager.user_id.toString(),
+      cpa_pool: manager.cpa_pool || 0,
+      revshare_rate: manager.revshare_rate || 0
+    });
+    setShowForm(true);
+  };
+
+  const deleteManager = async (managerId: number) => {
+    if (!confirm('Deletar este gerente?')) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/managers/${managerId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error('Falha ao deletar');
+      await fetchManagers();
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -3279,22 +3483,25 @@ function ManagersTab({ token: _token }: { token: string }) {
   };
 
   useEffect(() => {
+    fetchUsers();
     fetchManagers();
   }, []);
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">Gerentes</h2>
-          <p className="text-sm text-gray-400">Gerenciamento de gerentes e sub-afiliados</p>
+        <h2 className="text-2xl font-bold">Gerentes</h2>
+        <div className="flex gap-2">
+          <button
+            onClick={() => { setShowForm(!showForm); setEditingId(null); setForm({ user_id: '', cpa_pool: 0, revshare_rate: 0 }); }}
+            className="px-3 py-2 bg-[#d4af37] hover:bg-[#c5a028] text-black rounded font-semibold"
+          >
+            {showForm ? 'Cancelar' : 'Cadastrar Novo Gerente'}
+          </button>
+          <button onClick={fetchManagers} className="flex items-center gap-2 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded">
+            <RefreshCw size={18} /> Atualizar
+          </button>
         </div>
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="px-4 py-2 bg-[#ff6b35] hover:bg-[#ff7b35] text-white rounded"
-        >
-          {showForm ? 'Cancelar' : 'Novo Gerente'}
-        </button>
       </div>
 
       {error && (
@@ -3304,115 +3511,122 @@ function ManagersTab({ token: _token }: { token: string }) {
       )}
 
       {showForm && (
-        <div className="bg-gray-800/60 p-6 rounded-lg border border-gray-700">
-          <h3 className="text-lg font-semibold mb-4">Novo Gerente</h3>
+        <div className="bg-gray-800/60 p-6 rounded-lg border border-gray-700 space-y-4">
+          <h3 className="text-lg font-semibold">{editingId ? 'Editar' : 'Cadastrar Novo'} Gerente</h3>
           <div className="grid md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm text-gray-400 mb-1">Nome</label>
-              <input
+              <label className="block text-sm text-gray-400 mb-1">Usuário *</label>
+              <select
+                value={form.user_id}
+                onChange={(e) => setForm({...form, user_id: e.target.value})}
                 className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
-                value={form.name}
-                onChange={e => setForm({...form, name: e.target.value})}
-                placeholder="Nome completo"
+                disabled={!!editingId}
+              >
+                <option value="">Selecione um usuário</option>
+                {users.map(u => (
+                  <option key={u.id} value={u.id}>{u.username} {u.email ? `(${u.email})` : ''}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">CPA Pool (R$) - Total para distribuir aos subs</label>
+              <input
+                type="number"
+                step="0.01"
+                placeholder="Ex: 30"
+                value={form.cpa_pool}
+                onChange={(e) => setForm({...form, cpa_pool: parseFloat(e.target.value) || 0})}
+                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
               />
             </div>
             <div>
-              <label className="block text-sm text-gray-400 mb-1">Email</label>
+              <label className="block text-sm text-gray-400 mb-1">Revshare (%) - sobre depósitos dos subs</label>
               <input
-                type="email"
+                type="number"
+                step="0.01"
+                placeholder="0"
+                value={form.revshare_rate}
+                onChange={(e) => setForm({...form, revshare_rate: parseFloat(e.target.value) || 0})}
                 className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
-                value={form.email}
-                onChange={e => setForm({...form, email: e.target.value})}
-                placeholder="email@exemplo.com"
               />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Username</label>
-              <input
-                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
-                value={form.username}
-                onChange={e => setForm({...form, username: e.target.value})}
-                placeholder="username"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Senha</label>
-              <input
-                type="password"
-                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
-                value={form.password}
-                onChange={e => setForm({...form, password: e.target.value})}
-                placeholder="••••••••"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Afiliado Pai (ID)</label>
-              <input
-                className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600"
-                value={form.affiliate_id}
-                onChange={e => setForm({...form, affiliate_id: e.target.value})}
-                placeholder="ID do afiliado pai (opcional)"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={form.is_active}
-                onChange={e => setForm({...form, is_active: e.target.checked})}
-                className="w-4 h-4"
-              />
-              <label className="text-sm text-gray-300">Ativo</label>
             </div>
           </div>
-          <div className="mt-4 flex gap-2">
-            <button className="px-4 py-2 bg-[#d4af37] hover:bg-[#ffd700] text-black rounded">
-              Criar Gerente
-            </button>
-          </div>
+          <button
+            onClick={createOrUpdate}
+            disabled={loading || !form.user_id}
+            className="bg-[#d4af37] hover:bg-[#ffd700] text-black py-2 px-4 rounded font-semibold disabled:opacity-50"
+          >
+            {loading ? 'Salvando...' : editingId ? 'Atualizar' : 'Cadastrar Gerente'}
+          </button>
         </div>
       )}
 
-      {loading ? (
-        <div className="text-center py-12">Carregando gerentes...</div>
-      ) : managers.length === 0 ? (
-        <div className="text-center py-12 text-gray-400">
-          <p>Nenhum gerente cadastrado</p>
-          <p className="text-sm mt-2">Clique em "Novo Gerente" para criar um</p>
+      <div className="bg-gray-800/60 rounded-lg border border-gray-700 overflow-hidden">
+        <div className="flex items-center justify-between p-4 border-b border-gray-700">
+          <h3 className="text-lg font-semibold">Lista de Gerentes</h3>
+          <button onClick={fetchManagers} className="flex items-center gap-2 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm">
+            <RefreshCw size={16} /> Atualizar
+          </button>
         </div>
-      ) : (
-        <div className="bg-gray-800/60 rounded-lg border border-gray-700 overflow-hidden">
-          <table className="w-full">
-            <thead className="bg-gray-700">
-              <tr>
-                <th className="px-4 py-3 text-left text-sm font-semibold">Nome</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold">Email</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold">Username</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold">Afiliado Pai</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold">Status</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold">Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {managers.map((manager) => (
-                <tr key={manager.id} className="border-t border-gray-700">
-                  <td className="px-4 py-3">{manager.name}</td>
-                  <td className="px-4 py-3">{manager.email}</td>
-                  <td className="px-4 py-3">{manager.username}</td>
-                  <td className="px-4 py-3">{manager.affiliate_id || '-'}</td>
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-1 rounded text-xs ${manager.is_active ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>
-                      {manager.is_active ? 'Ativo' : 'Inativo'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <button className="text-blue-400 hover:text-blue-300 text-sm">Editar</button>
-                  </td>
+        {loading ? (
+          <div className="text-center py-12">Carregando gerentes...</div>
+        ) : managers.length === 0 ? (
+          <div className="text-center py-12 text-gray-400">
+            <p>Nenhum gerente cadastrado</p>
+            <p className="text-sm mt-2">Clique em "Cadastrar Novo Gerente" para criar um</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-700">
+                <tr>
+                  <th className="px-4 py-3 text-left">ID</th>
+                  <th className="px-4 py-3 text-left">Usuário</th>
+                  <th className="px-4 py-3 text-left">CPA Pool</th>
+                  <th className="px-4 py-3 text-left">Revshare (%)</th>
+                  <th className="px-4 py-3 text-left">Total Ganho</th>
+                  <th className="px-4 py-3 text-left">Status</th>
+                  <th className="px-4 py-3 text-left">Ações</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody>
+                {managers.map((manager) => (
+                  <tr key={manager.id} className="border-t border-gray-700 hover:bg-gray-800/50">
+                    <td className="px-4 py-3">{manager.id}</td>
+                    <td className="px-4 py-3">
+                      {manager.user_name} {manager.user_email ? `(${manager.user_email})` : ''}
+                    </td>
+                    <td className="px-4 py-3">R$ {manager.cpa_pool?.toFixed(2) || '0.00'}</td>
+                    <td className="px-4 py-3">{manager.revshare_rate?.toFixed(2) || '0.00'}%</td>
+                    <td className="px-4 py-3">R$ {manager.total_earned?.toFixed(2) || '0.00'}</td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-1 rounded text-xs ${manager.is_active ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>
+                        {manager.is_active ? 'Ativo' : 'Inativo'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => loadForEdit(manager)}
+                          className="text-blue-400 hover:text-blue-300 text-sm"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          onClick={() => deleteManager(manager.manager_id)}
+                          className="text-red-400 hover:text-red-300 text-sm"
+                        >
+                          Deletar
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
