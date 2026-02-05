@@ -2433,12 +2433,21 @@ function AffiliatesTab({ token }: { token: string }) {
           const totalEarned = cpaEarned + revshareEarned;
           
           // Buscar usuário vinculado ao afiliado (o próprio afiliado)
-          const affiliateUser = users.find((u: any) => u.affiliate_id === affiliate.id);
+          // O backend agora retorna user_id e user_name diretamente
+          const affiliateUserId = affiliate.user_id || null;
+          const affiliateUserName = affiliate.user_name || null;
+          
+          // Se não veio do backend, tentar buscar na lista de usuários
+          let finalUserName = affiliateUserName;
+          if (!finalUserName && affiliateUserId) {
+            const foundUser = users.find((u: any) => u.id === affiliateUserId);
+            finalUserName = foundUser?.username || '-';
+          }
           
           return {
             ...affiliate,
-            user_id: affiliateUser?.id || subordinateUsers[0]?.id || null,
-            user_name: affiliateUser?.username || subordinateUsers[0]?.username || '-',
+            user_id: affiliateUserId || subordinateUsers[0]?.id || null,
+            user_name: finalUserName || subordinateUsers[0]?.username || '-',
             cpa: cpaRate,
             revshare: revshareRate,
             deposits_brought: totalDeposits,
@@ -2502,17 +2511,8 @@ function AffiliatesTab({ token }: { token: string }) {
         throw new Error(data.detail || 'Falha ao salvar');
       }
       
-      // Vincular usuário ao afiliado
-      if (!editingId && selectedUser) {
-        const updateUserRes = await fetch(`${API_URL}/api/admin/users/${selectedUser.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ affiliate_id: (await res.json()).id })
-        });
-        if (!updateUserRes.ok) {
-          console.error('Erro ao vincular usuário ao afiliado');
-        }
-      }
+      // O backend agora vincula automaticamente o usuário ao afiliado
+      // Não precisa fazer chamada adicional
       
       await fetchAffiliates();
       setShowForm(false);

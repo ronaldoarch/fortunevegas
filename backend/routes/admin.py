@@ -1888,7 +1888,47 @@ async def get_affiliates(
     current_user: User = Depends(get_current_admin_user)
 ):
     """Listar afiliados"""
-    return db.query(Affiliate).order_by(Affiliate.created_at.desc()).all()
+    affiliates = db.query(Affiliate).order_by(Affiliate.created_at.desc()).all()
+    
+    # Para cada afiliado, buscar o usuário vinculado e adicionar informações
+    result = []
+    for affiliate in affiliates:
+        # Buscar usuário que tem este afiliado como affiliate_id
+        user = db.query(User).filter(User.affiliate_id == affiliate.id).first()
+        
+        # Se não encontrou, tentar pelo metadata_json
+        if not user and affiliate.metadata_json:
+            try:
+                metadata = json.loads(affiliate.metadata_json)
+                user_id = metadata.get("user_id")
+                if user_id:
+                    user = db.query(User).filter(User.id == user_id).first()
+                    # Se encontrou pelo metadata mas não está vinculado, vincular agora
+                    if user and not user.affiliate_id:
+                        user.affiliate_id = affiliate.id
+                        db.commit()
+            except:
+                pass
+        
+        # Criar resposta com informações do usuário
+        affiliate_dict = {
+            "id": affiliate.id,
+            "code": affiliate.code,
+            "name": affiliate.name,
+            "email": affiliate.email,
+            "phone": affiliate.phone,
+            "commission_rate": affiliate.commission_rate,
+            "is_active": affiliate.is_active,
+            "metadata_json": affiliate.metadata_json,
+            "created_at": affiliate.created_at,
+            "updated_at": affiliate.updated_at,
+            "user_id": user.id if user else None,
+            "user_name": user.username if user else None,
+            "user_email": user.email if user else None
+        }
+        result.append(affiliate_dict)
+    
+    return result
 
 
 @router.get("/affiliates/{affiliate_id}", response_model=AffiliateResponse)
@@ -1920,6 +1960,21 @@ async def create_affiliate(
     db.add(affiliate)
     db.commit()
     db.refresh(affiliate)
+    
+    # Vincular usuário ao afiliado se user_id estiver no metadata_json
+    if affiliate.metadata_json:
+        try:
+            metadata = json.loads(affiliate.metadata_json)
+            user_id = metadata.get("user_id")
+            if user_id:
+                user = db.query(User).filter(User.id == user_id).first()
+                if user:
+                    user.affiliate_id = affiliate.id
+                    db.commit()
+                    print(f"[AFFILIATE] Usuário {user_id} vinculado ao afiliado {affiliate.id}")
+        except Exception as e:
+            print(f"[AFFILIATE] Erro ao vincular usuário: {str(e)}")
+    
     return affiliate
 
 
@@ -1935,12 +1990,43 @@ async def update_affiliate(
     if not affiliate:
         raise HTTPException(status_code=404, detail="Afiliado não encontrado")
     
+    # Guardar user_id anterior do metadata
+    old_user_id = None
+    if affiliate.metadata_json:
+        try:
+            old_metadata = json.loads(affiliate.metadata_json)
+            old_user_id = old_metadata.get("user_id")
+        except:
+            pass
+    
     update_data = affiliate_data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(affiliate, field, value)
     
     db.commit()
     db.refresh(affiliate)
+    
+    # Desvincular usuário anterior se houver
+    if old_user_id:
+        old_user = db.query(User).filter(User.id == old_user_id).first()
+        if old_user and old_user.affiliate_id == affiliate_id:
+            old_user.affiliate_id = None
+            db.commit()
+    
+    # Vincular novo usuário ao afiliado se user_id estiver no metadata_json
+    if affiliate.metadata_json:
+        try:
+            metadata = json.loads(affiliate.metadata_json)
+            user_id = metadata.get("user_id")
+            if user_id:
+                user = db.query(User).filter(User.id == user_id).first()
+                if user:
+                    user.affiliate_id = affiliate.id
+                    db.commit()
+                    print(f"[AFFILIATE] Usuário {user_id} vinculado ao afiliado {affiliate.id}")
+        except Exception as e:
+            print(f"[AFFILIATE] Erro ao vincular usuário: {str(e)}")
+    
     return affiliate
 
 
