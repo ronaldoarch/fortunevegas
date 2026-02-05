@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from datetime import timedelta
+from datetime import timedelta, datetime
 from database import get_db
 from schemas import LoginRequest, Token, UserResponse, UserCreate
 from auth import authenticate_user, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES, get_password_hash, get_user_by_username
 from dependencies import get_current_user
 from models import User, UserRole
+from tracking_dispatcher import dispatch_tracking_event
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -61,6 +62,26 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+    
+    # Disparar evento de tracking para cadastro
+    try:
+        await dispatch_tracking_event(
+            db=db,
+            event_name="registration",
+            payload={
+                "user_id": new_user.id,
+                "email": new_user.email,
+                "phone": new_user.phone,
+                "username": new_user.username,
+                "timestamp": datetime.utcnow().isoformat(),
+                "metadata": {
+                    "cpf": new_user.cpf,
+                    "affiliate_id": new_user.affiliate_id
+                }
+            }
+        )
+    except Exception as e:
+        print(f"[TRACKING] Erro ao disparar evento de cadastro (não crítico): {str(e)}")
     
     return new_user
 

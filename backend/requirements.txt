@@ -13,3 +13,4 @@ bcrypt==4.1.2
 python-jose[cryptography]==3.3.0
 httpx==0.27.2
 python-dateutil==2.9.0.post0
+reportlab==4.0.9

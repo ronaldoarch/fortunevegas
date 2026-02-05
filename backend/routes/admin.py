@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, File, UploadFile
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from sqlalchemy import desc
@@ -6,6 +7,17 @@ from typing import List, Optional
 from datetime import datetime
 import uuid
 import json
+from io import BytesIO
+try:
+    from reportlab.lib.pagesizes import letter, A4
+    from reportlab.lib import colors
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
 
 from database import get_db
 from dependencies import get_current_admin_user, get_current_user
@@ -137,6 +149,117 @@ async def delete_user(
     db.delete(user)
     db.commit()
     return None
+
+
+@router.get("/users/export/pdf")
+async def export_users_pdf(
+    affiliate_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Exportar lista de usuários para PDF"""
+    if not REPORTLAB_AVAILABLE:
+        raise HTTPException(status_code=500, detail="Biblioteca reportlab não está instalada. Instale com: pip install reportlab")
+    
+    # Buscar usuários
+    query = db.query(User)
+    if affiliate_id is not None:
+        query = query.filter(User.affiliate_id == affiliate_id)
+    users = query.order_by(User.created_at.desc()).all()
+    
+    # Criar PDF em memória
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=0.5*inch, bottomMargin=0.5*inch)
+    elements = []
+    
+    # Estilos
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=18,
+        textColor=colors.HexColor('#1a1a1a'),
+        spaceAfter=30,
+        alignment=TA_CENTER
+    )
+    
+    # Título
+    title = Paragraph("Relatório de Usuários", title_style)
+    elements.append(title)
+    elements.append(Spacer(1, 0.2*inch))
+    
+    # Data de geração
+    date_style = ParagraphStyle(
+        'DateStyle',
+        parent=styles['Normal'],
+        fontSize=10,
+        textColor=colors.HexColor('#666666'),
+        alignment=TA_CENTER
+    )
+    date_text = Paragraph(f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}", date_style)
+    elements.append(date_text)
+    elements.append(Spacer(1, 0.3*inch))
+    
+    # Preparar dados da tabela
+    table_data = [['ID', 'Usuário', 'Email', 'Telefone', 'CPF', 'Saldo', 'Bônus', 'Status', 'Data Cadastro']]
+    
+    for user in users:
+        table_data.append([
+            str(user.id),
+            user.username or '-',
+            user.email or '-',
+            user.phone or '-',
+            user.cpf or '-',
+            f"R$ {user.balance:.2f}",
+            f"R$ {user.bonus_balance:.2f}",
+            'Ativo' if user.is_active else 'Inativo',
+            user.created_at.strftime('%d/%m/%Y') if user.created_at else '-'
+        ])
+    
+    # Criar tabela com larguras ajustadas para A4
+    # A4 width = 8.27 inch, deixando margens = ~7.5 inch disponível
+    table = Table(table_data, colWidths=[0.4*inch, 0.9*inch, 1.1*inch, 0.9*inch, 1*inch, 0.7*inch, 0.7*inch, 0.6*inch, 0.8*inch])
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2d3748')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 9),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#1a1a1a')),
+        ('TEXTCOLOR', (0, 1), (-1, -1), colors.whitesmoke),
+        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 1), (-1, -1), 7),
+        ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#4a5568')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.HexColor('#2d3748'), colors.HexColor('#1a1a1a')]),
+    ]))
+    
+    elements.append(table)
+    
+    # Total de usuários
+    elements.append(Spacer(1, 0.3*inch))
+    total_style = ParagraphStyle(
+        'TotalStyle',
+        parent=styles['Normal'],
+        fontSize=10,
+        textColor=colors.HexColor('#ffffff'),
+        alignment=TA_LEFT
+    )
+    total_text = Paragraph(f"<b>Total de usuários: {len(users)}</b>", total_style)
+    elements.append(total_text)
+    
+    # Construir PDF
+    doc.build(elements)
+    buffer.seek(0)
+    
+    # Retornar PDF
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename=usuarios_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        }
+    )
 
 
 # ========== DEPOSITS ==========
@@ -2737,8 +2860,10 @@ async def create_manager(
     db.add(manager_settings)
     
     # Atualizar role do usuário para manager se necessário
+    # Permitir que afiliados também sejam gerentes (mantém role de afiliado se já for)
     if user.role not in [UserRole.AGENT, UserRole.MANAGER]:
         user.role = UserRole.MANAGER
+    # Se o usuário já é afiliado (tem affiliate_id), mantém como afiliado mas também é gerente
     
     db.commit()
     db.refresh(manager_settings)

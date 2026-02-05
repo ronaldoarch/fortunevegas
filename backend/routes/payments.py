@@ -11,6 +11,7 @@ from gatebox_api import GateboxAPI
 from schemas import DepositResponse, WithdrawalResponse, DepositPixRequest, WithdrawalPixRequest, CouponValidateRequest, CouponResponse
 from dependencies import get_current_user
 from webhook_dispatcher import dispatch_webhook
+from tracking_dispatcher import dispatch_tracking_event
 from datetime import datetime
 import json
 import uuid
@@ -1100,6 +1101,39 @@ async def _process_pix_cashin(data: dict, db: Session):
             )
         except Exception as e:
             print(f"[WEBHOOK] ⚠️ Erro ao disparar webhook customizado (não crítico): {str(e)}")
+        
+        # Disparar eventos de tracking (primeiro depósito ou redepósito)
+        if deposit.status == TransactionStatus.APPROVED:
+            try:
+                # Verificar se é primeiro depósito
+                metadata = json.loads(deposit.metadata_json) if deposit.metadata_json else {}
+                is_first_deposit = metadata.get("is_first_deposit", False)
+                
+                # Buscar dados do usuário
+                user = db.query(User).filter(User.id == deposit.user_id).first()
+                if user:
+                    event_name = "first_deposit" if is_first_deposit else "redeposit"
+                    await dispatch_tracking_event(
+                        db=db,
+                        event_name=event_name,
+                        payload={
+                            "user_id": user.id,
+                            "email": user.email,
+                            "phone": user.phone,
+                            "amount": deposit.amount,
+                            "deposit_id": deposit.id,
+                            "timestamp": datetime.utcnow().isoformat(),
+                            "metadata": {
+                                "transaction_id": deposit.transaction_id,
+                                "external_id": deposit.external_id,
+                                "bonus_amount": deposit.bonus_amount,
+                                "coupon_code": deposit.coupon_code,
+                                "is_first_deposit": is_first_deposit
+                            }
+                        }
+                    )
+            except Exception as e:
+                print(f"[TRACKING] ⚠️ Erro ao disparar evento de tracking (não crítico): {str(e)}")
         
         return {
             "status": "ok", 

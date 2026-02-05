@@ -504,9 +504,35 @@ function UsersTab({ token }: { token: string }) {
     <div>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-2xl font-bold">Usuários</h2>
-        <button onClick={fetchUsers} className="flex items-center gap-2 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded">
-          <RefreshCw size={18} /> Atualizar
-        </button>
+        <div className="flex gap-2">
+          <button 
+            onClick={async () => {
+              try {
+                const res = await fetch(`${API_URL}/api/admin/users/export/pdf`, {
+                  headers: { Authorization: `Bearer ${token}` }
+                });
+                if (!res.ok) throw new Error('Falha ao exportar PDF');
+                const blob = await res.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `usuarios_${new Date().toISOString().split('T')[0]}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+              } catch (err: any) {
+                alert('Erro ao exportar PDF: ' + err.message);
+              }
+            }}
+            className="flex items-center gap-2 px-3 py-2 bg-green-600 hover:bg-green-700 rounded"
+          >
+            <FileText size={18} /> Exportar PDF
+          </button>
+          <button onClick={fetchUsers} className="flex items-center gap-2 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded">
+            <RefreshCw size={18} /> Atualizar
+          </button>
+        </div>
       </div>
       {error && <div className="text-red-400 mb-3">{error}</div>}
       {loading ? <div>Carregando...</div> : (
@@ -517,8 +543,12 @@ function UsersTab({ token }: { token: string }) {
                 <th className="px-3 py-2 text-left">ID</th>
                 <th className="px-3 py-2 text-left">Usuário</th>
                 <th className="px-3 py-2 text-left">Email</th>
+                <th className="px-3 py-2 text-left">Telefone</th>
+                <th className="px-3 py-2 text-left">CPF</th>
                 <th className="px-3 py-2 text-left">Saldo</th>
+                <th className="px-3 py-2 text-left">Bônus</th>
                 <th className="px-3 py-2 text-left">Status</th>
+                <th className="px-3 py-2 text-left">Data Cadastro</th>
               </tr>
             </thead>
             <tbody>
@@ -527,8 +557,12 @@ function UsersTab({ token }: { token: string }) {
                   <td className="px-3 py-2">{u.id}</td>
                   <td className="px-3 py-2">{u.username}</td>
                   <td className="px-3 py-2">{u.email}</td>
-                  <td className="px-3 py-2">R$ {u.balance?.toFixed(2)}</td>
+                  <td className="px-3 py-2">{u.phone || '-'}</td>
+                  <td className="px-3 py-2">{u.cpf || '-'}</td>
+                  <td className="px-3 py-2">R$ {u.balance?.toFixed(2) || '0.00'}</td>
+                  <td className="px-3 py-2">R$ {u.bonus_balance?.toFixed(2) || '0.00'}</td>
                   <td className="px-3 py-2">{u.is_active ? 'Ativo' : 'Inativo'}</td>
+                  <td className="px-3 py-2">{u.created_at ? new Date(u.created_at).toLocaleDateString('pt-BR') : '-'}</td>
                 </tr>
               ))}
             </tbody>
