@@ -415,7 +415,6 @@ def run_migrations():
                         coupon_is_withdrawable = coupon_row[0]
                 
                 # Extrair informações do metadata
-                import json
                 metadata = json.loads(metadata_json) if metadata_json else {}
                 promotion_id = metadata.get("promotion_id")
                 promotion_bonus = metadata.get("promotion_bonus", 0)
