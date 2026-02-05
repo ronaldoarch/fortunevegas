@@ -6,6 +6,7 @@ import Profile from './pages/Profile';
 import Game from './pages/Game';
 import Depositar from './pages/Depositar';
 import Sacar from './pages/Sacar';
+import Afiliado from './pages/Afiliado';
 
 export default function AppRouter() {
   return (
@@ -16,6 +17,7 @@ export default function AppRouter() {
         <Route path="/depositar" element={<Depositar />} />
         <Route path="/sacar" element={<Sacar />} />
         <Route path="/jogo/:gameCode" element={<Game />} />
+        <Route path="/afiliado" element={<Afiliado />} />
         <Route path="/admin/login" element={<AdminLogin />} />
         <Route path="/admin" element={<Admin />} />
         <Route path="*" element={<Navigate to="/" replace />} />

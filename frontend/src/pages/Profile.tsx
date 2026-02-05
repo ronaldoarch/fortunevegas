@@ -157,7 +157,7 @@ export default function Profile() {
             {/* Botão para Afiliados */}
             {user.affiliate_id && (
               <button
-                onClick={() => navigate('/admin')}
+                onClick={() => navigate('/afiliado')}
                 className="w-full bg-[#0a4d3e] hover:bg-[#0d5d4b] text-white font-semibold py-3 rounded-lg transition-colors text-left px-4 flex items-center gap-2"
               >
                 <User size={18} />
