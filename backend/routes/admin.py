@@ -2882,9 +2882,11 @@ async def create_manager(
     
     # Atualizar role do usuário para manager se necessário
     # Permitir que afiliados também sejam gerentes (mantém role de afiliado se já for)
+    # Não alterar role se já for MANAGER ou AGENT
     if user.role not in [UserRole.AGENT, UserRole.MANAGER]:
         user.role = UserRole.MANAGER
     # Se o usuário já é afiliado (tem affiliate_id), mantém como afiliado mas também é gerente
+    # O usuário pode ser afiliado E gerente ao mesmo tempo
     
     db.commit()
     db.refresh(manager_settings)

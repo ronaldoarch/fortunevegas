@@ -27,6 +27,25 @@ def run_migrations():
     
     try:
         with engine.begin() as conn:  # begin() cria transação automaticamente
+            # 0. Adicionar 'manager' ao enum userrole se não existir
+            print("Verificando enum userrole...")
+            try:
+                conn.execute(text("""
+                    DO $$ 
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1 FROM pg_enum 
+                            WHERE enumlabel = 'manager' 
+                            AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'userrole')
+                        ) THEN
+                            ALTER TYPE userrole ADD VALUE 'manager';
+                        END IF;
+                    END $$;
+                """))
+                print("✓ Enum userrole atualizado (manager adicionado se necessário)")
+            except Exception as e:
+                print(f"⚠️ Erro ao atualizar enum userrole (pode já existir): {str(e)}")
+            
             # 1. Criar tabela affiliates primeiro
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS affiliates (
