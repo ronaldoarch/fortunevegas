@@ -1990,6 +1990,19 @@ function ThemesTab({ token }: { token: string }) {
         const data = await res.json();
         throw new Error(data.detail || 'Falha ao salvar');
       }
+      
+      const savedTheme = await res.json();
+      
+      // Se foi marcado como padrão, aplicar automaticamente
+      if (form.is_default) {
+        const themeColors = JSON.parse(savedTheme.colors_json);
+        applyThemeToDocument({
+          id: String(savedTheme.id),
+          name: savedTheme.name,
+          ...themeColors
+        } as ThemePalette);
+      }
+      
       await fetchThemes();
       setForm({ name: 'Novo tema', is_default: false, is_active: true, bg: '#0a0e0f', surface: '#0d1415', card: '#0f1b1d', accent: '#d4af37', accentSoft: '#0f6f5a', text: '#ffffff', muted: '#cbd5e1' });
       setEditingId(null);
@@ -2002,6 +2015,7 @@ function ThemesTab({ token }: { token: string }) {
 
   const applyTheme = async (theme: any) => {
     try {
+      setLoading(true);
       // Marcar como padrão e aplicar
       const colors = JSON.parse(theme.colors_json);
       applyThemeToDocument({
@@ -2019,6 +2033,8 @@ function ThemesTab({ token }: { token: string }) {
       await fetchThemes();
     } catch (err: any) {
       setError(err.message || 'Erro ao aplicar tema');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -2050,8 +2066,60 @@ function ThemesTab({ token }: { token: string }) {
     });
   };
 
+  const createNewTheme = () => {
+    setEditingId(null);
+    setForm({
+      name: 'Novo tema',
+      is_default: false,
+      is_active: true,
+      bg: '#0a0e0f',
+      surface: '#0d1415',
+      card: '#0f1b1d',
+      accent: '#d4af37',
+      accentSoft: '#0f6f5a',
+      text: '#ffffff',
+      muted: '#cbd5e1'
+    });
+  };
+
+  // Aplicar tema em tempo real quando as cores mudarem
+  useEffect(() => {
+    if (form.bg && form.surface && form.card && form.accent && form.accentSoft && form.text && form.muted) {
+      applyThemeToDocument({
+        id: editingId ? String(editingId) : 'preview',
+        name: form.name || 'Preview',
+        bg: form.bg,
+        surface: form.surface,
+        card: form.card,
+        accent: form.accent,
+        accentSoft: form.accentSoft,
+        text: form.text,
+        muted: form.muted
+      } as ThemePalette);
+    }
+  }, [form.bg, form.surface, form.card, form.accent, form.accentSoft, form.text, form.muted, editingId, form.name]);
+
   useEffect(() => {
     fetchThemes();
+    // Carregar tema ativo ao iniciar
+    fetch(`${API_URL}/api/admin/themes/active`)
+      .then(res => {
+        if (res.ok) {
+          return res.json();
+        }
+        return null;
+      })
+      .then(theme => {
+        if (theme && theme.colors_json) {
+          const colors = JSON.parse(theme.colors_json);
+          applyThemeToDocument({
+            id: String(theme.id),
+            name: theme.name,
+            ...colors
+          } as ThemePalette);
+        }
+      })
+      .catch(err => console.error('Erro ao carregar tema ativo:', err));
   }, []);
 
   return (
@@ -2062,6 +2130,16 @@ function ThemesTab({ token }: { token: string }) {
       </div>
 
       {error && <div className="text-red-400">{error}</div>}
+
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold">Gerenciar Temas</h3>
+        <button 
+          onClick={createNewTheme}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-semibold"
+        >
+          + Novo Tema
+        </button>
+      </div>
 
       <div className="grid md:grid-cols-2 gap-4 bg-gray-800/60 p-4 rounded border border-gray-700">
         <div className="space-y-3">

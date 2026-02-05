@@ -2554,8 +2554,13 @@ async def create_theme(
     # Se é o padrão, remover padrão dos outros
     if theme_data.is_default:
         db.query(Theme).filter(Theme.is_default == True).update({"is_default": False})
+        # Garantir que o tema também esteja ativo quando for padrão
+        theme_dict = theme_data.model_dump()
+        theme_dict["is_active"] = True
+        theme = Theme(**theme_dict)
+    else:
+        theme = Theme(**theme_data.model_dump())
     
-    theme = Theme(**theme_data.model_dump())
     db.add(theme)
     db.commit()
     db.refresh(theme)
@@ -2579,6 +2584,8 @@ async def update_theme(
     # Se está marcando como padrão, remover padrão dos outros
     if update_data.get("is_default") is True:
         db.query(Theme).filter(Theme.is_default == True, Theme.id != theme_id).update({"is_default": False})
+        # Garantir que o tema também esteja ativo quando for padrão
+        update_data["is_active"] = True
     
     for field, value in update_data.items():
         setattr(theme, field, value)
