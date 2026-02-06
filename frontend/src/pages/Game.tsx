@@ -67,12 +67,33 @@ export default function Game() {
     };
 
     launchGame();
+
+    // Cleanup: garantir que overflow seja restaurado ao sair da página
+    return () => {
+      document.body.style.overflow = '';
+      document.documentElement.style.overflow = '';
+    };
   }, [gameCode, token, user, authLoading]);
 
-  // Detectar mudanças de fullscreen
+  // Detectar mudanças de fullscreen e aplicar estilos
   useEffect(() => {
     const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
+      const isFullscreenNow = !!(
+        document.fullscreenElement ||
+        (document as any).webkitFullscreenElement ||
+        (document as any).mozFullScreenElement ||
+        (document as any).msFullscreenElement
+      );
+      setIsFullscreen(isFullscreenNow);
+      
+      // Aplicar/remover overflow hidden apenas quando em fullscreen
+      if (isFullscreenNow) {
+        document.body.style.overflow = 'hidden';
+        document.documentElement.style.overflow = 'hidden';
+      } else {
+        document.body.style.overflow = '';
+        document.documentElement.style.overflow = '';
+      }
     };
 
     document.addEventListener('fullscreenchange', handleFullscreenChange);
@@ -85,6 +106,9 @@ export default function Game() {
       document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
       document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
       document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
+      // Limpar estilos ao desmontar
+      document.body.style.overflow = '';
+      document.documentElement.style.overflow = '';
     };
   }, []);
 
@@ -104,6 +128,9 @@ export default function Game() {
         await (container as any).msRequestFullscreen();
       }
       setHeaderVisible(false);
+      // Aplicar overflow hidden quando entrar em fullscreen
+      document.body.style.overflow = 'hidden';
+      document.documentElement.style.overflow = 'hidden';
     } catch (err) {
       console.error('Erro ao entrar em fullscreen:', err);
     }
@@ -122,6 +149,9 @@ export default function Game() {
         await (document as any).msExitFullscreen();
       }
       setHeaderVisible(true);
+      // Remover overflow hidden ao sair de fullscreen
+      document.body.style.overflow = '';
+      document.documentElement.style.overflow = '';
     } catch (err) {
       console.error('Erro ao sair de fullscreen:', err);
     }
