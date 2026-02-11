@@ -97,8 +97,9 @@ export default function Depositar() {
           // Disparar evento de pixel para depósito
           const isFirstDeposit = data.is_first_deposit || false;
           const eventName = isFirstDeposit ? 'first_deposit' : 'redeposit';
+          const depositAmount = data.deposit_amount || parseFloat(amount.replace(',', '.')) || 0;
           trackPixelEvent(eventName, {
-            value: data.deposit_amount || pixData.amount || 0,
+            value: depositAmount,
             currency: 'BRL',
             content_name: isFirstDeposit ? 'First Deposit' : 'Redeposit',
             content_category: 'Deposit'
