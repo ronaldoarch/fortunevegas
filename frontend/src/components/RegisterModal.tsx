@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { trackPixelEvent } from '../utils/pixelTracker';
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://api.fortunevegas.site';
 
@@ -231,6 +232,13 @@ export default function RegisterModal({ isOpen, onClose, onSwitchToLogin }: Regi
                   phone: phoneClean, // Salvar telefone limpo
                   affiliate_code: affiliateCode || undefined, // Enviar código de afiliado se existir
                 });
+                
+                // Disparar evento de pixel para registro
+                trackPixelEvent('registration', {
+                  content_name: 'User Registration',
+                  content_category: 'Account Creation'
+                });
+                
                 onClose();
               } catch (err: any) {
                 setError(err.message || 'Erro ao criar conta');

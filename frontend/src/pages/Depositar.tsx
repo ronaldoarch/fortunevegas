@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ArrowLeft, Wallet, Copy, Check } from 'lucide-react';
 import QRCode from 'qrcode';
+import { trackPixelEvent } from '../utils/pixelTracker';
 
 // Backend FastAPI - usa variável de ambiente ou fallback para localhost
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -92,6 +93,17 @@ export default function Depositar() {
           // Saldo foi creditado!
           depositStatusRef.current = 'approved';
           setDepositStatus('approved');
+          
+          // Disparar evento de pixel para depósito
+          const isFirstDeposit = data.is_first_deposit || false;
+          const eventName = isFirstDeposit ? 'first_deposit' : 'redeposit';
+          trackPixelEvent(eventName, {
+            value: data.deposit_amount || pixData.amount || 0,
+            currency: 'BRL',
+            content_name: isFirstDeposit ? 'First Deposit' : 'Redeposit',
+            content_category: 'Deposit'
+          });
+          
           if (refreshUser) {
             await refreshUser();
           }

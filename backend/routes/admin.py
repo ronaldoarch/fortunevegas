@@ -2544,6 +2544,27 @@ async def get_active_theme(
     return theme
 
 
+@public_router.get("/tracking-configs/pixel")
+async def get_pixel_config(db: Session = Depends(get_db)):
+    """
+    Retorna apenas o pixel_id das configurações de pixel ativas (público)
+    Não retorna access_token por segurança
+    """
+    pixel_configs = db.query(TrackingConfig).filter(
+        TrackingConfig.type == TrackingType.PIXEL,
+        TrackingConfig.is_active == True,
+        TrackingConfig.pixel_id.isnot(None)
+    ).all()
+    
+    # Retornar apenas o primeiro pixel ativo (ou todos se necessário)
+    if pixel_configs:
+        return {
+            "pixel_id": pixel_configs[0].pixel_id,
+            "name": pixel_configs[0].name
+        }
+    return {"pixel_id": None, "name": None}
+
+
 @public_router.get("/themes/active", response_model=ThemeResponse)
 async def get_active_theme_public(
     db: Session = Depends(get_db)
