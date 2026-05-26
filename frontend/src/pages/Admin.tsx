@@ -687,9 +687,12 @@ function GatewaysTab({ token }: { token: string }) {
   const [form, setForm] = useState({ 
     name: '', 
     type: 'pix', 
-    is_active: true, 
+    is_active: true,
+    provider: 'gatebox' as 'gatebox' | 'keiko',
     username: '',
     password: '',
+    client_id: '',
+    client_secret: '',
     api_url: 'https://api.gatebox.com.br'
   });
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -707,12 +710,31 @@ function GatewaysTab({ token }: { token: string }) {
   };
 
   const resetForm = () => {
-    setForm({ name: '', type: 'pix', is_active: true, username: '', password: '', api_url: 'https://api.gatebox.com.br' });
+    setForm({
+      name: '',
+      type: 'pix',
+      is_active: true,
+      provider: 'gatebox',
+      username: '',
+      password: '',
+      client_id: '',
+      client_secret: '',
+      api_url: 'https://api.gatebox.com.br'
+    });
     setEditingId(null);
   };
 
   const prepareCredentials = () => {
+    if (form.provider === 'keiko') {
+      return JSON.stringify({
+        provider: 'keiko',
+        client_id: form.client_id,
+        client_secret: form.client_secret,
+        api_url: form.api_url || 'https://api.keikobank.com'
+      });
+    }
     return JSON.stringify({
+      provider: 'gatebox',
       username: form.username,
       password: form.password,
       api_url: form.api_url || 'https://api.gatebox.com.br'
@@ -777,24 +799,43 @@ function GatewaysTab({ token }: { token: string }) {
 
   const loadForEdit = (gateway: any) => {
     setEditingId(gateway.id);
+    let provider: 'gatebox' | 'keiko' = 'gatebox';
+    if (gateway.credentials) {
+      try {
+        const creds = JSON.parse(gateway.credentials);
+        if (creds.provider === 'keiko' || (creds.client_id && creds.client_secret)) {
+          provider = 'keiko';
+        }
+      } catch (e) {
+        // ignore
+      }
+    } else if ((gateway.name || '').toLowerCase().includes('keiko')) {
+      provider = 'keiko';
+    }
+
     setForm({
       name: gateway.name || '',
       type: gateway.type || 'pix',
       is_active: gateway.is_active ?? true,
+      provider,
       username: '',
       password: '',
-      api_url: 'https://api.gatebox.com.br'
+      client_id: '',
+      client_secret: '',
+      api_url: provider === 'keiko' ? 'https://api.keikobank.com' : 'https://api.gatebox.com.br'
     });
 
-    // Parse credentials se existir
     if (gateway.credentials) {
       try {
         const creds = JSON.parse(gateway.credentials);
         setForm(prev => ({
           ...prev,
+          provider: creds.provider === 'keiko' || (creds.client_id && creds.client_secret) ? 'keiko' : 'gatebox',
           username: creds.username || '',
           password: creds.password || '',
-          api_url: creds.api_url || 'https://api.gatebox.com.br'
+          client_id: creds.client_id || '',
+          client_secret: creds.client_secret || '',
+          api_url: creds.api_url || (creds.provider === 'keiko' ? 'https://api.keikobank.com' : 'https://api.gatebox.com.br')
         }));
       } catch (e) {
         // Se não for JSON, deixa vazio
@@ -855,37 +896,86 @@ function GatewaysTab({ token }: { token: string }) {
           </div>
 
           <div>
-            <label className="block text-sm text-gray-400 mb-1">Username</label>
-            <input 
-              type="text"
-              className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600 focus:border-[#d4af37] focus:outline-none" 
-              placeholder="Username da Gatebox"
-              value={form.username} 
-              onChange={e=>setForm({...form, username:e.target.value})}
-            />
+            <label className="block text-sm text-gray-400 mb-1">Provedor</label>
+            <select
+              className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600 focus:border-[#d4af37] focus:outline-none"
+              value={form.provider}
+              onChange={e => {
+                const provider = e.target.value as 'gatebox' | 'keiko';
+                setForm({
+                  ...form,
+                  provider,
+                  api_url: provider === 'keiko' ? 'https://api.keikobank.com' : 'https://api.gatebox.com.br'
+                });
+              }}
+            >
+              <option value="gatebox">Gatebox</option>
+              <option value="keiko">Keiko Exchange</option>
+            </select>
           </div>
 
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Password</label>
-            <input 
-              type="password"
-              className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600 focus:border-[#d4af37] focus:outline-none" 
-              placeholder="Password da Gatebox"
-              value={form.password} 
-              onChange={e=>setForm({...form, password:e.target.value})}
-            />
-          </div>
+          {form.provider === 'gatebox' ? (
+            <>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Username</label>
+                <input
+                  type="text"
+                  className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600 focus:border-[#d4af37] focus:outline-none"
+                  placeholder="Username da Gatebox"
+                  value={form.username}
+                  onChange={e => setForm({ ...form, username: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Password</label>
+                <input
+                  type="password"
+                  className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600 focus:border-[#d4af37] focus:outline-none"
+                  placeholder="Password da Gatebox"
+                  value={form.password}
+                  onChange={e => setForm({ ...form, password: e.target.value })}
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Client ID</label>
+                <input
+                  type="text"
+                  className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600 focus:border-[#d4af37] focus:outline-none"
+                  placeholder="be9cd100-e83f-4d3f-bc5b-695ec1aa2e04"
+                  value={form.client_id}
+                  onChange={e => setForm({ ...form, client_id: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Client Secret</label>
+                <input
+                  type="password"
+                  className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600 focus:border-[#d4af37] focus:outline-none"
+                  placeholder="cs_live_xxxxxxxx"
+                  value={form.client_secret}
+                  onChange={e => setForm({ ...form, client_secret: e.target.value })}
+                />
+              </div>
+            </>
+          )}
 
           <div className="md:col-span-2">
             <label className="block text-sm text-gray-400 mb-1">API URL</label>
             <input 
               type="text"
               className="w-full bg-gray-700 rounded px-3 py-2 text-sm border border-gray-600 focus:border-[#d4af37] focus:outline-none" 
-              placeholder="https://api.gatebox.com.br"
+              placeholder={form.provider === 'keiko' ? 'https://api.keikobank.com' : 'https://api.gatebox.com.br'}
               value={form.api_url} 
               onChange={e=>setForm({...form, api_url:e.target.value})}
             />
-            <p className="text-xs text-gray-500 mt-1">URL base da API Gatebox (padrão: https://api.gatebox.com.br)</p>
+            <p className="text-xs text-gray-500 mt-1">
+              {form.provider === 'keiko'
+                ? 'URL base da API Keiko Exchange (padrão: https://api.keikobank.com)'
+                : 'URL base da API Gatebox (padrão: https://api.gatebox.com.br)'}
+            </p>
           </div>
 
           <div className="flex items-center gap-2">
@@ -985,29 +1075,50 @@ function GatewaysTab({ token }: { token: string }) {
                   {credentials && (
                     <div className="space-y-3 pt-4 border-t border-gray-700/50">
                       <div className="flex items-center justify-between text-sm">
-                        <span className="text-gray-400">Client ID</span>
-                        <span className="text-white font-mono text-xs bg-gray-900/50 px-2 py-1 rounded">
-                          {credentials.client_id || credentials.ci || '—'}
+                        <span className="text-gray-400">Provedor</span>
+                        <span className="text-white font-semibold text-xs capitalize">
+                          {credentials.provider || (credentials.client_id ? 'keiko' : 'gatebox')}
                         </span>
                       </div>
-                      
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-gray-400">Client Secret</span>
-                        <span className="text-white font-mono text-xs bg-gray-900/50 px-2 py-1 rounded">
-                          {credentials.client_secret || credentials.cs ? '••••••••••••' : '—'}
-                        </span>
-                      </div>
-                      
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-gray-400">Ambiente</span>
-                        <span className={`font-semibold text-xs px-2 py-1 rounded ${
-                          credentials.sandbox 
-                            ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' 
-                            : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
-                        }`}>
-                          {credentials.sandbox ? 'Sandbox' : 'Produção'}
-                        </span>
-                      </div>
+                      {(credentials.provider === 'keiko' || credentials.client_id) ? (
+                        <>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-gray-400">Client ID</span>
+                            <span className="text-white font-mono text-xs bg-gray-900/50 px-2 py-1 rounded truncate max-w-[180px]">
+                              {credentials.client_id || '—'}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-gray-400">Client Secret</span>
+                            <span className="text-white font-mono text-xs bg-gray-900/50 px-2 py-1 rounded">
+                              {credentials.client_secret ? '••••••••••••' : '—'}
+                            </span>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-gray-400">Username</span>
+                            <span className="text-white font-mono text-xs bg-gray-900/50 px-2 py-1 rounded">
+                              {credentials.username || '—'}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-gray-400">Password</span>
+                            <span className="text-white font-mono text-xs bg-gray-900/50 px-2 py-1 rounded">
+                              {credentials.password ? '••••••••••••' : '—'}
+                            </span>
+                          </div>
+                        </>
+                      )}
+                      {credentials.api_url && (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-gray-400">API URL</span>
+                          <span className="text-white font-mono text-xs bg-gray-900/50 px-2 py-1 rounded truncate max-w-[180px]">
+                            {credentials.api_url}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -4522,7 +4633,8 @@ function TrackingTab({ token }: { token: string }) {
 }
 
 function WebhooksTab({ token }: { token: string }) {
-  const [webhookUrl, setWebhookUrl] = useState('');
+  const [gateboxUrl, setGateboxUrl] = useState('');
+  const [keikoUrl, setKeikoUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -4539,7 +4651,8 @@ function WebhooksTab({ token }: { token: string }) {
       });
       if (!res.ok) throw new Error('Falha ao carregar URL do webhook');
       const data = await res.json();
-      setWebhookUrl(data.webhook_url);
+      setGateboxUrl(data.gatebox_webhook_url || data.webhook_url || '');
+      setKeikoUrl(data.keiko_webhook_url || '');
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -4547,58 +4660,79 @@ function WebhooksTab({ token }: { token: string }) {
     }
   };
 
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(webhookUrl);
+  const copyToClipboard = (url: string) => {
+    navigator.clipboard.writeText(url);
     alert('URL copiada para a área de transferência!');
   };
+
+  const WebhookBlock = ({ title, url, instructions }: { title: string; url: string; instructions: string[] }) => (
+    <div className="bg-gray-800 rounded-lg p-6 space-y-4">
+      <h3 className="text-lg font-semibold">{title}</h3>
+      <div>
+        <label className="block text-sm font-medium mb-2">URL do Webhook</label>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={url}
+            readOnly
+            className="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm font-mono"
+          />
+          <button
+            onClick={() => copyToClipboard(url)}
+            className="bg-[#d4af37] hover:bg-[#ffd700] text-black px-4 py-2 rounded font-semibold"
+          >
+            Copiar
+          </button>
+        </div>
+      </div>
+      <div className="bg-blue-500/10 border border-blue-500/30 rounded p-4">
+        <h4 className="text-sm font-semibold text-blue-300 mb-2">Instruções:</h4>
+        <ol className="list-decimal list-inside space-y-1 text-sm text-gray-300">
+          {instructions.map((step, i) => (
+            <li key={i}>{step}</li>
+          ))}
+        </ol>
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold">Webhook Gatebox</h2>
-        <p className="text-gray-400">Configure esta URL no painel da Gatebox para receber notificações de eventos</p>
+        <h2 className="text-2xl font-bold">Webhooks de Pagamento</h2>
+        <p className="text-gray-400">Configure a URL correspondente ao gateway ativo no painel do provedor</p>
       </div>
 
       {error && <div className="bg-red-500/20 border border-red-500 text-red-200 px-4 py-3 rounded">{error}</div>}
+      {loading && <div className="bg-blue-500/20 border border-blue-500 text-blue-200 px-4 py-3 rounded">Carregando URLs...</div>}
 
-      {loading && <div className="bg-blue-500/20 border border-blue-500 text-blue-200 px-4 py-3 rounded">Carregando URL do webhook...</div>}
-
-      <div className="bg-gray-800 rounded-lg p-6">
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-2">URL do Webhook</label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={webhookUrl}
-                readOnly
-                className="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm font-mono"
-              />
-              <button
-                onClick={copyToClipboard}
-                className="bg-[#d4af37] hover:bg-[#ffd700] text-black px-4 py-2 rounded font-semibold"
-              >
-                Copiar
-              </button>
-            </div>
-          </div>
-
-          <div className="bg-blue-500/10 border border-blue-500/30 rounded p-4">
-            <h3 className="text-sm font-semibold text-blue-300 mb-2">Instruções:</h3>
-            <ol className="list-decimal list-inside space-y-1 text-sm text-gray-300">
-              <li>Acesse o painel da Gatebox</li>
-              <li>Vá em Configurações → Webhooks</li>
-              <li>Cole a URL acima no campo de webhook</li>
-              <li>Salve as configurações</li>
-            </ol>
-          </div>
-
-          <div className="bg-yellow-500/10 border border-yellow-500/30 rounded p-4">
-            <p className="text-sm text-yellow-300">
-              <strong>Importante:</strong> Esta URL recebe todos os eventos da Gatebox (depósitos, saques, etc.) e processa automaticamente conforme o tipo de evento.
-            </p>
-          </div>
+      {!loading && (
+        <div className="grid lg:grid-cols-2 gap-6">
+          <WebhookBlock
+            title="Gatebox"
+            url={gateboxUrl}
+            instructions={[
+              'Acesse o painel da Gatebox',
+              'Vá em Configurações → Webhooks',
+              'Cole a URL acima e salve',
+            ]}
+          />
+          <WebhookBlock
+            title="Keiko Exchange"
+            url={keikoUrl}
+            instructions={[
+              'Acesse o painel da conta Keiko Exchange (keikobank.com)',
+              'Vá em configurações da conta cliente → Webhook',
+              'Cole a URL acima e salve',
+            ]}
+          />
         </div>
+      )}
+
+      <div className="bg-yellow-500/10 border border-yellow-500/30 rounded p-4">
+        <p className="text-sm text-yellow-300">
+          <strong>Importante:</strong> O webhook da Keiko é configurado no painel da plataforma Keiko, não nas requisições PIX. Use apenas a URL do provedor do gateway ativo.
+        </p>
       </div>
     </div>
   );

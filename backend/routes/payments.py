@@ -1,5 +1,5 @@
 """
-Rotas públicas para pagamentos (depósitos e saques) usando Gatebox
+Rotas públicas para pagamentos (depósitos e saques) via Gatebox ou Keiko Exchange
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
@@ -8,6 +8,18 @@ from sqlalchemy import desc, or_
 from database import get_db
 from models import User, Deposit, Withdrawal, Gateway, TransactionStatus, FTDSettings, WebhookEventType, Bet, BetStatus, Notification, Coupon, CouponUse, Promotion, PromotionUse, PromotionType, FTD
 from gatebox_api import GateboxAPI
+from gateway_service import (
+    PROVIDER_GATEBOX,
+    PROVIDER_KEIKO,
+    get_gateway_provider,
+    get_gatebox_client,
+    get_keiko_client,
+    extract_pix_from_keiko_charge,
+    format_phone_for_keiko,
+    map_pix_key_type_to_keiko,
+    normalize_keiko_status,
+    normalize_keiko_webhook,
+)
 from schemas import DepositResponse, WithdrawalResponse, DepositPixRequest, WithdrawalPixRequest, CouponValidateRequest, CouponResponse
 from dependencies import get_current_user
 from webhook_dispatcher import dispatch_webhook
@@ -56,28 +68,6 @@ def get_active_pix_gateway(db: Session) -> Gateway:
         )
     
     return gateway
-
-
-def get_gatebox_client(gateway: Gateway) -> GateboxAPI:
-    """Cria cliente Gatebox a partir das credenciais do gateway"""
-    try:
-        credentials = json.loads(gateway.credentials) if gateway.credentials else {}
-        username = credentials.get("username")
-        password = credentials.get("password")
-        api_url = credentials.get("api_url", "https://api.gatebox.com.br")
-        
-        if not username or not password:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Credenciais do gateway não configuradas (username e password são obrigatórios)"
-            )
-        
-        return GateboxAPI(username=username, password=password, api_url=api_url)
-    except json.JSONDecodeError:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Credenciais do gateway inválidas"
-        )
 
 
 @router.post("/deposit/pix", response_model=DepositResponse, status_code=status.HTTP_201_CREATED)
@@ -185,44 +175,42 @@ async def create_pix_deposit(
     
     # Buscar gateway PIX ativo
     gateway = get_active_pix_gateway(db)
-    
-    # Criar cliente Gatebox
-    gatebox = get_gatebox_client(gateway)
+    provider = get_gateway_provider(gateway)
     
     # Gerar external_id único para controle de duplicidade
     external_id = f"DEP_{user.id}_{int(datetime.utcnow().timestamp())}"
     
-    # Preparar dados para a API Gatebox
-    # Telefone é opcional - só enviar se existir e estiver em formato válido
-    phone_to_send = None
-    if user.phone:
-        import re
-        # Limpar telefone (remover caracteres não numéricos)
-        phone_clean = re.sub(r'[^0-9]', '', user.phone)
-        # Validar se tem pelo menos 10 dígitos (DDD + número)
-        if len(phone_clean) >= 10:
-            # Formatar como +55 (código do Brasil) + DDD + número
-            if not phone_clean.startswith('55'):
-                phone_to_send = f"+55{phone_clean}"
-            else:
-                phone_to_send = f"+{phone_clean}"
-    
-    # Email é opcional - usar temporário se não houver
-    email_to_send = user.email if user.email and '@' in user.email else f"{user.username}@temp.com"
-    
-    # Gerar código PIX
-    # document só será enviado se for CPF/CNPJ válido (11 ou 14 dígitos)
-    pix_response = await gatebox.create_immediate_qrcode(
-        external_id=external_id,
-        amount=deposit_data.amount,
-        name=deposit_data.payer_name,
-        expire=3600,  # 1 hora de expiração
-        document=payer_tax_id_to_send,  # Opcional - só enviado se for CPF/CNPJ válido
-        email=email_to_send,
-        phone=phone_to_send,  # Pode ser None se não houver telefone válido
-        identification=f"Depósito - {deposit_data.payer_name}",
-        description=f"Depósito de R$ {deposit_data.amount:.2f}"
-    )
+    if provider == PROVIDER_KEIKO:
+        keiko = get_keiko_client(gateway)
+        pix_response = await keiko.create_pix_charge(
+            amount=deposit_data.amount,
+            payer_name=deposit_data.payer_name,
+            payer_document=payer_tax_id_to_send,
+            description=f"Depósito de R$ {deposit_data.amount:.2f}",
+            idempotency_key=external_id,
+        )
+    else:
+        gatebox = get_gatebox_client(gateway)
+        phone_to_send = None
+        if user.phone:
+            phone_clean = re.sub(r'[^0-9]', '', user.phone)
+            if len(phone_clean) >= 10:
+                if not phone_clean.startswith('55'):
+                    phone_to_send = f"+55{phone_clean}"
+                else:
+                    phone_to_send = f"+{phone_clean}"
+        email_to_send = user.email if user.email and '@' in user.email else f"{user.username}@temp.com"
+        pix_response = await gatebox.create_immediate_qrcode(
+            external_id=external_id,
+            amount=deposit_data.amount,
+            name=deposit_data.payer_name,
+            expire=3600,
+            document=payer_tax_id_to_send,
+            email=email_to_send,
+            phone=phone_to_send,
+            identification=f"Depósito - {deposit_data.payer_name}",
+            description=f"Depósito de R$ {deposit_data.amount:.2f}"
+        )
     
     # Verificar se houve erro na resposta da Gatebox
     if not pix_response:
@@ -252,59 +240,55 @@ async def create_pix_deposit(
         )
     
     # Criar registro de depósito
-    # A Gatebox pode retornar dados em diferentes estruturas
-    # Verificar se há um campo "data" ou similar que contenha a resposta real
     actual_response = pix_response
     if isinstance(pix_response, dict):
-        # Verificar se há um campo "data" que contenha a resposta real
         if "data" in pix_response and isinstance(pix_response["data"], dict):
             actual_response = pix_response["data"]
-        # Verificar se há um campo "result" que contenha a resposta real
         elif "result" in pix_response and isinstance(pix_response["result"], dict):
             actual_response = pix_response["result"]
     
-    # Log para debug
-    print(f"Gatebox PIX Response (raw): {json.dumps(pix_response, indent=2)}")
-    print(f"Gatebox PIX Response (actual): {json.dumps(actual_response, indent=2)}")
+    print(f"{provider.upper()} PIX Response (raw): {json.dumps(pix_response, indent=2)}")
+    print(f"{provider.upper()} PIX Response (actual): {json.dumps(actual_response, indent=2)}")
     
-    # Extrair dados do PIX da resposta Gatebox
-    # A Gatebox retorna o código PIX no campo "key"
-    pix_code = (
-        actual_response.get("key") or  # Campo principal da Gatebox
-        actual_response.get("qrCode") or 
-        actual_response.get("pixCode") or 
-        actual_response.get("emv") or 
-        actual_response.get("qr_code") or
-        actual_response.get("pix_code") or
-        actual_response.get("code") or
-        actual_response.get("qrCodeString") or
-        ""
-    )
-    
-    # A Gatebox pode não retornar QR Code Base64 diretamente
-    # Vamos tentar encontrar ou gerar depois se necessário
-    pix_qr_code_base64 = (
-        actual_response.get("qrCodeBase64") or 
-        actual_response.get("base64") or 
-        actual_response.get("qr_code_base64") or
-        actual_response.get("qrCodeBase64Image") or
-        actual_response.get("qrCodeImage") or
-        actual_response.get("qrCodeImageBase64") or
-        actual_response.get("qrCode") or  # Pode ser base64 também
-        ""
-    )
-    
-    transaction_id_gatebox = (
-        actual_response.get("transactionId") or 
-        actual_response.get("id") or 
-        actual_response.get("transaction_id") or
-        actual_response.get("externalId") or
-        ""
-    )
+    if provider == PROVIDER_KEIKO:
+        pix_code, pay_url, transaction_id_gateway = extract_pix_from_keiko_charge(actual_response)
+        pix_qr_code_base64 = pay_url or ""
+        gateway_response_key = "keiko_response"
+        gateway_raw_key = "keiko_raw_response"
+    else:
+        pix_code = (
+            actual_response.get("key") or
+            actual_response.get("qrCode") or
+            actual_response.get("pixCode") or
+            actual_response.get("emv") or
+            actual_response.get("qr_code") or
+            actual_response.get("pix_code") or
+            actual_response.get("code") or
+            actual_response.get("qrCodeString") or
+            ""
+        )
+        pix_qr_code_base64 = (
+            actual_response.get("qrCodeBase64") or
+            actual_response.get("base64") or
+            actual_response.get("qr_code_base64") or
+            actual_response.get("qrCodeBase64Image") or
+            actual_response.get("qrCodeImage") or
+            actual_response.get("qrCodeImageBase64") or
+            actual_response.get("qrCode") or
+            ""
+        )
+        transaction_id_gateway = (
+            actual_response.get("transactionId") or
+            actual_response.get("id") or
+            actual_response.get("transaction_id") or
+            actual_response.get("externalId") or
+            ""
+        )
+        gateway_response_key = "gatebox_response"
+        gateway_raw_key = "gatebox_raw_response"
     
     print(f"Extracted PIX Code: {pix_code[:50] if pix_code else 'EMPTY'}...")
-    print(f"Extracted QR Code Base64: {'Yes (' + str(len(pix_qr_code_base64)) + ' chars)' if pix_qr_code_base64 else 'No'}")
-    print(f"Extracted Transaction ID: {transaction_id_gatebox}")
+    print(f"Extracted Transaction ID: {transaction_id_gateway}")
     
     # Validar se temos pelo menos o código PIX
     if not pix_code:
@@ -317,17 +301,18 @@ async def create_pix_deposit(
         bonus_amount=total_bonus,  # Total de bônus (cupom + promoção)
         coupon_code=deposit_data.coupon_code.upper().strip() if deposit_data.coupon_code else None,
         status=TransactionStatus.PENDING,
-        transaction_id=transaction_id_gatebox or str(uuid.uuid4()),
+        transaction_id=transaction_id_gateway or str(uuid.uuid4()),
         external_id=external_id,
         metadata_json=json.dumps({
             "pix_code": pix_code,
             "pix_qr_code": pix_code,
             "pix_qr_code_base64": pix_qr_code_base64,
-            "transaction_id": transaction_id_gatebox,
+            "transaction_id": transaction_id_gateway,
             "end_to_end": actual_response.get("endToEnd") or actual_response.get("end_to_end"),
             "external_id": external_id,
-            "gatebox_response": actual_response,
-            "gatebox_raw_response": pix_response,  # Manter resposta original para debug
+            "provider": provider,
+            gateway_response_key: actual_response,
+            gateway_raw_key: pix_response,
             "promotion_id": promotion.id if promotion else None,
             "promotion_bonus": promotion_bonus,
             "coupon_bonus": bonus_amount,
@@ -360,45 +345,55 @@ async def check_deposit_status(
     if not deposit:
         raise HTTPException(status_code=404, detail="Depósito não encontrado")
     
-    # Buscar gateway PIX ativo
     gateway = get_active_pix_gateway(db)
-    
-    # Obter credenciais do gateway
-    credentials = json.loads(gateway.credentials) if gateway.credentials else {}
-    username = credentials.get("username")
-    password = credentials.get("password")
-    api_url = credentials.get("api_url", "https://api.gatebox.com.br")
-    
-    if not username or not password:
-        raise HTTPException(status_code=500, detail="Credenciais do gateway não configuradas")
-    
-    # Consultar status na Gatebox
-    gatebox = GateboxAPI(username=username, password=password, api_url=api_url)
-    
-    # Tentar consultar pelo external_id primeiro
-    status_response = await gatebox.get_pix_status(external_id=deposit.external_id)
-    
-    if status_response and status_response.get("error"):
-        # Se falhar, tentar pelo transaction_id no metadata
-        metadata = json.loads(deposit.metadata_json) if deposit.metadata_json else {}
-        transaction_id = metadata.get("transaction_id") or metadata.get("uuid")
-        if transaction_id:
-            status_response = await gatebox.get_pix_status(transaction_id=transaction_id)
-    
+    provider = get_gateway_provider(gateway)
+    metadata = json.loads(deposit.metadata_json) if deposit.metadata_json else {}
+    transaction_id = deposit.transaction_id or metadata.get("transaction_id")
+    gateway_status = None
+    status_response = None
+
+    if provider == PROVIDER_KEIKO:
+        if not transaction_id:
+            return {
+                "deposit_id": deposit.id,
+                "current_status": deposit.status.value,
+                "gateway_status": None,
+                "error": "transaction_id Keiko não encontrado",
+            }
+        keiko = get_keiko_client(gateway)
+        status_response = await keiko.get_transaction(transaction_id)
+        if status_response and not status_response.get("error"):
+            items = status_response.get("items") or []
+            if items:
+                gateway_status = items[0].get("status")
+            else:
+                gateway_status = status_response.get("status")
+    else:
+        credentials = json.loads(gateway.credentials) if gateway.credentials else {}
+        username = credentials.get("username")
+        password = credentials.get("password")
+        api_url = credentials.get("api_url", "https://api.gatebox.com.br")
+        if not username or not password:
+            raise HTTPException(status_code=500, detail="Credenciais do gateway não configuradas")
+        gatebox = GateboxAPI(username=username, password=password, api_url=api_url)
+        status_response = await gatebox.get_pix_status(external_id=deposit.external_id)
+        if status_response and status_response.get("error"):
+            if transaction_id:
+                status_response = await gatebox.get_pix_status(transaction_id=transaction_id)
+        if status_response and not status_response.get("error"):
+            gatebox_data = status_response.get("data") or status_response
+            gateway_status = gatebox_data.get("status") or gatebox_data.get("statusTransaction")
+
     if not status_response or status_response.get("error"):
         return {
             "deposit_id": deposit.id,
             "current_status": deposit.status.value,
+            "gateway_status": None,
             "gatebox_status": None,
-            "error": status_response.get("detail") if status_response else "Erro ao consultar status"
+            "error": status_response.get("detail") if status_response else "Erro ao consultar status",
         }
-    
-    # Extrair dados da resposta
-    gatebox_data = status_response.get("data") or status_response
-    gatebox_status = gatebox_data.get("status") or gatebox_data.get("statusTransaction")
-    
-    # Processar atualização de status
-    status_upper = str(gatebox_status).upper() if gatebox_status else ""
+
+    status_upper = normalize_keiko_status(gateway_status) if provider == PROVIDER_KEIKO else str(gateway_status or "").upper()
     
     if status_upper in ["PAID", "PAID_OUT", "CONFIRMED", "APPROVED", "SUCCESS", "COMPLETED"]:
         if deposit.status != TransactionStatus.APPROVED:
@@ -490,7 +485,8 @@ async def check_deposit_status(
                 return {
                     "deposit_id": deposit.id,
                     "current_status": "APPROVED",
-                    "gatebox_status": gatebox_status,
+                    "gateway_status": gateway_status,
+                    "gatebox_status": gateway_status,
                     "balance_credited": True,
                     "new_balance": user.balance,
                     "bonus_applied": deposit.bonus_amount
@@ -551,7 +547,8 @@ async def check_deposit_status(
     return {
         "deposit_id": deposit.id,
         "current_status": deposit.status.value,
-        "gatebox_status": gatebox_status,
+        "gateway_status": gateway_status,
+        "gatebox_status": gateway_status,
         "balance_credited": deposit.status == TransactionStatus.APPROVED
     }
 
@@ -623,13 +620,8 @@ async def create_pix_withdrawal(
         pix_key_clean = f"+55{pix_key_clean}"
         print(f"[WITHDRAWAL] Chave PIX (telefone) formatada: {pix_key_clean}")
     
-    # Buscar gateway PIX ativo
     gateway = get_active_pix_gateway(db)
-    
-    # Criar cliente Gatebox
-    gatebox = get_gatebox_client(gateway)
-    
-    # Gerar external_id único para controle de duplicidade
+    provider = get_gateway_provider(gateway)
     external_id = f"WTH_{user.id}_{int(datetime.utcnow().timestamp())}"
     
     # Realizar transferência PIX
@@ -659,16 +651,32 @@ async def create_pix_withdrawal(
     print(f"  - Documento (opcional): {document_validation or 'Não informado'}")
     
     try:
-        transfer_response = await gatebox.withdraw_pix(
-            external_id=external_id,
-            key=pix_key_clean,
-            name=recipient_name,
-            amount=amount,
-            document_number=document_validation,
-            description=f"Saque de R$ {amount:.2f}"
-        )
+        if provider == PROVIDER_KEIKO:
+            keiko = get_keiko_client(gateway)
+            keiko_pix_key = pix_key_clean
+            if type_key == "TELEFONE":
+                keiko_pix_key = format_phone_for_keiko(pix_key_clean)
+            transfer_response = await keiko.create_pix_transfer(
+                amount=amount,
+                beneficiary_name=recipient_name,
+                pix_key=keiko_pix_key,
+                pix_key_type=map_pix_key_type_to_keiko(type_key),
+                beneficiary_document=document_validation,
+                description=f"Saque de R$ {amount:.2f}",
+                idempotency_key=external_id,
+            )
+        else:
+            gatebox = get_gatebox_client(gateway)
+            transfer_response = await gatebox.withdraw_pix(
+                external_id=external_id,
+                key=pix_key_clean,
+                name=recipient_name,
+                amount=amount,
+                document_number=document_validation,
+                description=f"Saque de R$ {amount:.2f}"
+            )
     except Exception as e:
-        print(f"Erro ao chamar Gatebox withdraw_pix: {str(e)}")
+        print(f"Erro ao chamar gateway withdraw ({provider}): {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Erro ao processar transferência PIX: {str(e)}"
@@ -722,41 +730,51 @@ async def create_pix_withdrawal(
     print(f"Gatebox Withdrawal Response (raw): {json.dumps(transfer_response, indent=2)}")
     print(f"Gatebox Withdrawal Response (actual): {json.dumps(actual_response, indent=2)}")
     
-    # Extrair transaction_id e end_to_end da resposta
-    transaction_id_gatebox = (
-        actual_response.get("transactionId") or 
-        actual_response.get("id") or 
-        actual_response.get("transaction_id") or
-        actual_response.get("externalId") or
-        ""
-    )
-    
+    if provider == PROVIDER_KEIKO:
+        transaction_id_gateway = (
+            actual_response.get("transaction_id") or
+            actual_response.get("provider_order") or
+            ""
+        )
+        gateway_response_key = "keiko_response"
+        gateway_raw_key = "keiko_raw_response"
+    else:
+        transaction_id_gateway = (
+            actual_response.get("transactionId") or
+            actual_response.get("id") or
+            actual_response.get("transaction_id") or
+            actual_response.get("externalId") or
+            ""
+        )
+        gateway_response_key = "gatebox_response"
+        gateway_raw_key = "gatebox_raw_response"
+
     end_to_end = (
-        actual_response.get("endToEnd") or 
+        actual_response.get("endToEnd") or
         actual_response.get("end_to_end") or
         None
     )
-    
-    print(f"Extracted Transaction ID: {transaction_id_gatebox}")
+
+    print(f"Extracted Transaction ID: {transaction_id_gateway}")
     print(f"Extracted End-to-End: {end_to_end}")
-    
-    # Criar registro de saque
+
     withdrawal = Withdrawal(
         user_id=user.id,
         gateway_id=gateway.id,
         amount=amount,
         status=TransactionStatus.PENDING,
-        transaction_id=transaction_id_gatebox or str(uuid.uuid4()),
+        transaction_id=transaction_id_gateway or str(uuid.uuid4()),
         external_id=external_id,
         metadata_json=json.dumps({
             "pix_key": pix_key,
             "type_key": type_key,
             "document_validation": document_validation,
             "external_id": external_id,
-            "transaction_id": transaction_id_gatebox,
+            "transaction_id": transaction_id_gateway,
             "end_to_end": end_to_end,
-            "gatebox_response": actual_response,
-            "gatebox_raw_response": transfer_response  # Manter resposta original para debug
+            "provider": provider,
+            gateway_response_key: actual_response,
+            gateway_raw_key: transfer_response,
         })
     )
     
@@ -893,6 +911,55 @@ async def webhook_gatebox(request: Request, db: Session = Depends(get_db)):
         return {"status": "error", "message": f"Erro ao processar webhook: {str(e)}"}
 
 
+@webhook_router.post("/keiko")
+async def webhook_keiko(request: Request, db: Session = Depends(get_db)):
+    """
+    Webhook para eventos normalizados da Keiko Exchange.
+    Configure esta URL no painel da conta Keiko (client platform settings).
+    """
+    try:
+        try:
+            data = await request.json()
+        except Exception:
+            body = await request.body()
+            data = json.loads(body.decode("utf-8")) if body else {}
+
+        print(f"[WEBHOOK] ========== WEBHOOK KEIKO RECEBIDO ==========")
+        print(f"[WEBHOOK] Raw data: {json.dumps(data, indent=2)}")
+
+        normalized = normalize_keiko_webhook(data)
+        event = normalized.get("event") or ""
+        direction = normalized.get("direction") or ""
+
+        process_data = {
+            "status": normalized.get("status"),
+            "statusTransaction": normalized.get("status"),
+            "transaction_id": normalized.get("transaction_id"),
+            "transactionId": normalized.get("transaction_id"),
+            "external_id": normalized.get("external_id"),
+            "externalId": normalized.get("external_id"),
+            "end_to_end": normalized.get("end_to_end"),
+            "endToEnd": normalized.get("end_to_end"),
+            "amount": normalized.get("amount"),
+            "keiko_raw": data,
+        }
+
+        if event.startswith("pix_in") or direction == "PIX_IN":
+            result = await _process_pix_cashin(process_data, db)
+        elif event.startswith("pix_out") or direction == "PIX_OUT":
+            result = await _process_pix_cashout(process_data, db)
+        else:
+            result = await _process_unknown_event(process_data, db)
+
+        print(f"[WEBHOOK] ========== WEBHOOK KEIKO PROCESSADO ==========")
+        return {"status": "ok", "message": "Webhook Keiko processado", "result": result}
+    except Exception as e:
+        import traceback
+        print(f"[WEBHOOK] ❌ ERRO ao processar webhook Keiko: {str(e)}")
+        print(f"[WEBHOOK] Traceback: {traceback.format_exc()}")
+        return {"status": "error", "message": f"Erro ao processar webhook: {str(e)}"}
+
+
 async def _process_pix_cashin(data: dict, db: Session):
     """Processa webhook de PIX Cash-in (depósito)"""
     # Buscar gateway PIX ativo
@@ -928,6 +995,12 @@ async def _process_pix_cashin(data: dict, db: Session):
                 print(f"[WEBHOOK] Depósito encontrado pelo UUID: {uuid_gatebox}")
                 break
     
+    # Buscar pelo transaction_id na coluna do depósito (Keiko Exchange)
+    if not deposit and transaction_id:
+        deposit = db.query(Deposit).filter(Deposit.transaction_id == transaction_id).first()
+        if deposit:
+            print(f"[WEBHOOK] Depósito encontrado pelo transaction_id (coluna): {transaction_id}")
+
     # Se ainda não encontrou, tentar pelo transaction_id no metadata
     if not deposit and transaction_id:
         deposits = db.query(Deposit).filter(
@@ -965,8 +1038,7 @@ async def _process_pix_cashin(data: dict, db: Session):
     status_upper = str(status_transaction).upper() if status_transaction else ""
     print(f"[WEBHOOK] Status recebido (uppercase): {status_upper}")
     
-    # Aceitar mais variações de status de pagamento confirmado
-    paid_statuses = ["PAID", "PAID_OUT", "CONFIRMED", "APPROVED", "SUCCESS", "COMPLETED", "SETTLED"]
+    paid_statuses = ["PAID", "PAID_OUT", "CONFIRMED", "APPROVED", "SUCCESS", "COMPLETED", "SETTLED", "SUCCEEDED"]
     
     if status_upper in paid_statuses:
         if deposit.status != TransactionStatus.APPROVED:
@@ -1302,16 +1374,21 @@ async def _process_pix_cashout(data: dict, db: Session):
         if withdrawal:
             print(f"[WEBHOOK] Saque encontrado pelo external_id: {external_id}, ID: {withdrawal.id}")
     
-    # Se não encontrou pelo external_id, tentar pelo transaction_id no metadata
+    if not withdrawal and transaction_id:
+        withdrawal = db.query(Withdrawal).filter(Withdrawal.transaction_id == transaction_id).first()
+        if withdrawal:
+            print(f"[WEBHOOK] Saque encontrado pelo transaction_id (coluna): {transaction_id}")
+
     if not withdrawal and transaction_id:
         withdrawals = db.query(Withdrawal).filter(
             Withdrawal.status == TransactionStatus.PENDING
         ).all()
         for w in withdrawals:
             metadata = json.loads(w.metadata_json) if w.metadata_json else {}
-            gatebox_response = metadata.get("gatebox_response") or {}
-            if (metadata.get("transaction_id") == transaction_id or 
+            gatebox_response = metadata.get("gatebox_response") or metadata.get("keiko_response") or {}
+            if (metadata.get("transaction_id") == transaction_id or
                 gatebox_response.get("transactionId") == transaction_id or
+                gatebox_response.get("transaction_id") == transaction_id or
                 gatebox_response.get("uuid") == transaction_id or
                 metadata.get("end_to_end") == end_to_end):
                 withdrawal = w
@@ -1328,8 +1405,7 @@ async def _process_pix_cashout(data: dict, db: Session):
     status_upper = str(status_transaction).upper() if status_transaction else ""
     print(f"[WEBHOOK] Status processado (uppercase): {status_upper}")
     
-    # Status de sucesso
-    success_statuses = ["PAID", "PAID_OUT", "CONFIRMED", "APPROVED", "SUCCESS", "COMPLETED", "SETTLED"]
+    success_statuses = ["PAID", "PAID_OUT", "CONFIRMED", "APPROVED", "SUCCESS", "COMPLETED", "SETTLED", "SUCCEEDED"]
     # Status de falha
     failed_statuses = ["CANCELLED", "CANCELED", "REJECTED", "FAILED", "CHARGEBACK", "EXPIRED"]
     

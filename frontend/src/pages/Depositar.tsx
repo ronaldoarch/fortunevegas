@@ -269,8 +269,9 @@ export default function Depositar() {
         
         console.log('Parsed Metadata:', metadata);
         
-        const gateboxResponse = metadata.gatebox_response || {};
-        const gateboxRawResponse = metadata.gatebox_raw_response || {};
+        const gateboxResponse = metadata.gatebox_response || metadata.keiko_response || {};
+        const gateboxRawResponse = metadata.gatebox_raw_response || metadata.keiko_raw_response || {};
+        const keikoQr = gateboxResponse.qr_code || {};
         console.log('Gatebox Response:', gateboxResponse);
         console.log('Gatebox Raw Response:', gateboxRawResponse);
         
@@ -287,6 +288,7 @@ export default function Depositar() {
         const pixCode = (
           metadata.pix_code || 
           metadata.pix_qr_code ||
+          keikoQr.br_code ||
           gateboxResponse.key ||  // Campo principal da Gatebox
           gateboxResponse.qrCode || 
           gateboxResponse.pixCode || 

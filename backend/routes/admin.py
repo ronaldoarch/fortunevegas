@@ -3253,20 +3253,21 @@ async def get_webhook_url(
     current_user: User = Depends(get_current_admin_user)
 ):
     """
-    Retorna a URL do webhook que deve ser configurada no painel da Gatebox
+    Retorna URLs de webhook para Gatebox e Keiko Exchange.
     """
     import os
     webhook_base_url = os.getenv("WEBHOOK_BASE_URL", "")
     
-    # Se não tiver variável, usar a URL padrão do backend
     if not webhook_base_url:
-        # URL padrão do backend em produção
         webhook_base_url = "https://api.fortunevegas.site"
     
-    webhook_url = f"{webhook_base_url}/api/webhooks/gatebox"
+    gatebox_url = f"{webhook_base_url}/api/webhooks/gatebox"
+    keiko_url = f"{webhook_base_url}/api/webhooks/keiko"
     return {
-        "webhook_url": webhook_url,
-        "instructions": "Configure esta URL no painel da Gatebox para receber notificações de eventos"
+        "webhook_url": gatebox_url,
+        "gatebox_webhook_url": gatebox_url,
+        "keiko_webhook_url": keiko_url,
+        "instructions": "Configure a URL correspondente ao gateway ativo no painel do provedor"
     }
 
 
